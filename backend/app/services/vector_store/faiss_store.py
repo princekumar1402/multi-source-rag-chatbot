@@ -141,3 +141,28 @@ class FAISSVectorStore(BaseVectorStore):
         if not workspace_id:
             return len(self.chunks)
         return sum(1 for c in self.chunks if c.metadata.workspace_id == workspace_id)
+
+    def get_all_chunks(self, filters: Optional[Dict[str, Any]] = None) -> List[DocumentChunk]:
+        """Retrieve all document chunks, optionally filtered."""
+        if not filters:
+            return list(self.chunks)
+
+        results = []
+        for chunk in self.chunks:
+            match = True
+            for k, v in filters.items():
+                if k == "workspace_id" and chunk.metadata.workspace_id != v:
+                    match = False
+                    break
+                elif k == "document_ids" and v and chunk.metadata.document_id not in v:
+                    match = False
+                    break
+                elif k == "document_id" and chunk.metadata.document_id != v:
+                    match = False
+                    break
+                elif k == "source_type" and chunk.metadata.source_type != v:
+                    match = False
+                    break
+            if match:
+                results.append(chunk)
+        return results

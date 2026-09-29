@@ -1,0 +1,251 @@
+{
+  "mode": "baseline_dense",
+  "total_positive_cases": 8,
+  "recall@1": 0.625,
+  "recall@3": 0.75,
+  "recall@5": 0.875,
+  "metadata_accuracy": 0.75,
+  "avg_latency_ms": 0.79,
+  "details": [
+    {
+      "id": "eval-pdf-01",
+      "question": "What are the four necessary conditions for a deadlock to occur?",
+      "hit@1": true,
+      "hit@3": true,
+      "hit@5": true,
+      "latency_ms": 0.88,
+      "top_retrieved": [
+        [
+          "Operating_Systems_Notes.pdf",
+          0.3586
+        ],
+        [
+          "Networking_Protocols.txt",
+          0.3275
+        ],
+        [
+          "DBMS_Architecture.docx",
+          0.3026
+        ],
+        [
+          "Deep Learning Lecture 4 - Optimization",
+          0.2678
+        ],
+        [
+          "DBMS_Architecture.docx",
+          0.2467
+        ]
+      ]
+    },
+    {
+      "id": "eval-docx-02",
+      "question": "What are the ACID properties in database transaction management?",
+      "hit@1": true,
+      "hit@3": true,
+      "hit@5": true,
+      "latency_ms": 0.72,
+      "top_retrieved": [
+        [
+          "DBMS_Architecture.docx",
+          0.5572
+        ],
+        [
+          "DBMS_Architecture.docx",
+          0.3822
+        ],
+        [
+          "Deep Learning Lecture 4 - Optimization",
+          0.3424
+        ],
+        [
+          "Networking_Protocols.txt",
+          0.2721
+        ],
+        [
+          "Data_Engineering_Guide.md",
+          0.2335
+        ]
+      ]
+    },
+    {
+      "id": "eval-md-03",
+      "question": "How does columnar memory layout in Polars improve vector execution compared to row-oriented Pandas?",
+      "hit@1": true,
+      "hit@3": true,
+      "hit@5": true,
+      "latency_ms": 0.86,
+      "top_retrieved": [
+        [
+          "Data_Engineering_Guide.md",
+          0.3344
+        ],
+        [
+          "DBMS_Architecture.docx",
+          0.1347
+        ],
+        [
+          "Gardening_Tips.txt",
+          0.122
+        ],
+        [
+          "University_Roster.xlsx",
+          0.1208
+        ],
+        [
+          "Employee_Directory.csv",
+          0.1143
+        ]
+      ]
+    },
+    {
+      "id": "eval-txt-04",
+      "question": "Describe the three-way handshake sequence in TCP connection establishment.",
+      "hit@1": true,
+      "hit@3": true,
+      "hit@5": true,
+      "latency_ms": 0.79,
+      "top_retrieved": [
+        [
+          "Networking_Protocols.txt",
+          0.4789
+        ],
+        [
+          "DBMS_Architecture.docx",
+          0.2598
+        ],
+        [
+          "Deep Learning Lecture 4 - Optimization",
+          0.2523
+        ],
+        [
+          "DBMS_Architecture.docx",
+          0.1841
+        ],
+        [
+          "Operating_Systems_Notes.pdf",
+          0.1828
+        ]
+      ]
+    },
+    {
+      "id": "eval-csv-05",
+      "question": "What is the department, role, and compensation of Rahul Sharma in the employee directory?",
+      "hit@1": false,
+      "hit@3": false,
+      "hit@5": false,
+      "latency_ms": 0.82,
+      "top_retrieved": [
+        [
+          "Deep Learning Lecture 4 - Optimization",
+          0.4844
+        ],
+        [
+          "Operating_Systems_Notes.pdf",
+          0.4259
+        ],
+        [
+          "Networking_Protocols.txt",
+          0.3647
+        ],
+        [
+          "DBMS_Architecture.docx",
+          0.3514
+        ],
+        [
+          "DBMS_Architecture.docx",
+          0.2915
+        ]
+      ]
+    },
+    {
+      "id": "eval-xlsx-06",
+      "question": "What is the CGPA and enrolled semester for Priya Patel in the student roster?",
+      "hit@1": false,
+      "hit@3": false,
+      "hit@5": true,
+      "latency_ms": 0.79,
+      "top_retrieved": [
+        [
+          "Deep Learning Lecture 4 - Optimization",
+          0.4367
+        ],
+        [
+          "DBMS_Architecture.docx",
+          0.3859
+        ],
+        [
+          "Operating_Systems_Notes.pdf",
+          0.3411
+        ],
+        [
+          "Networking_Protocols.txt",
+          0.3188
+        ],
+        [
+          "University_Roster.xlsx",
+          0.3072
+        ]
+      ]
+    },
+    {
+      "id": "eval-web-07",
+      "question": "How does HTTP/3 utilize the QUIC protocol to mitigate head-of-line blocking?",
+      "hit@1": false,
+      "hit@3": true,
+      "hit@5": true,
+      "latency_ms": 0.72,
+      "top_retrieved": [
+        [
+          "Deep Learning Lecture 4 - Optimization",
+          0.2697
+        ],
+        [
+          "HTTP/3 and QUIC Protocol Guide",
+          0.257
+        ],
+        [
+          "Networking_Protocols.txt",
+          0.2253
+        ],
+        [
+          "Operating_Systems_Notes.pdf",
+          0.219
+        ],
+        [
+          "Operating_Systems_Notes.pdf",
+          0.1859
+        ]
+      ]
+    },
+    {
+      "id": "eval-yt-08",
+      "question": "At what timestamp does the lecture explain backpropagation using the calculus chain rule?",
+      "hit@1": true,
+      "hit@3": true,
+      "hit@5": true,
+      "latency_ms": 0.71,
+      "top_retrieved": [
+        [
+          "Deep Learning Lecture 4 - Optimization",
+          0.5718
+        ],
+        [
+          "Networking_Protocols.txt",
+          0.4105
+        ],
+        [
+          "DBMS_Architecture.docx",
+          0.2929
+        ],
+        [
+          "Operating_Systems_Notes.pdf",
+          0.2501
+        ],
+        [
+          "Operating_Systems_Notes.pdf",
+          0.1944
+        ]
+      ]
+    }
+  ]
+}

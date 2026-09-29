@@ -32,6 +32,8 @@ class RAGQueryRequest(BaseModel):
     enable_query_rewriting: bool = True
     enable_reranking: bool = True
     document_ids: Optional[List[str]] = None
+    source_types: Optional[List[SourceType]] = None
+    debug: bool = False
 
 class RAGQueryResponse(BaseModel):
     question: str
@@ -41,3 +43,6 @@ class RAGQueryResponse(BaseModel):
     has_sufficient_context: bool = True
     retrieved_count: int = 0
     latency_seconds: float = 0.0
+    retrieval: Optional[Dict[str, Any]] = None
+    latency: Optional[Dict[str, float]] = None
+    debug: Optional[Dict[str, Any]] = None

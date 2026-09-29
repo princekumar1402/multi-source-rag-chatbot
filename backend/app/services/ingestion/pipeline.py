@@ -31,21 +31,26 @@ SUPPORTED_FILE_EXTENSIONS = {
     ".xlsx": SourceType.XLSX,
 }
 
+from backend.app.services.rag.bm25 import BaseKeywordRetriever
+
 class IngestionPipeline:
     """
     Coordinates multi-source extraction (Files, Web, YouTube),
-    deduplication, metadata preservation, chunking, embedding, and vector persistence.
+    deduplication, metadata preservation, chunking, embedding, vector persistence,
+    and BM25 keyword index synchronization.
     """
 
     def __init__(
         self,
         embedder: BaseEmbedder,
         vector_store: BaseVectorStore,
-        chunker: Optional[MetadataAwareChunker] = None
+        chunker: Optional[MetadataAwareChunker] = None,
+        keyword_retriever: Optional[BaseKeywordRetriever] = None
     ):
         self.embedder = embedder
         self.vector_store = vector_store
         self.chunker = chunker or MetadataAwareChunker()
+        self.keyword_retriever = keyword_retriever
         # In-memory document registry for Phase 1 & 2 (migrated to PostgreSQL in Phase 4)
         self.documents_db: Dict[str, DocumentResponse] = {}
 
@@ -173,8 +178,10 @@ class IngestionPipeline:
             chunk_texts = [c.content for c in chunks]
             embeddings = self.embedder.embed_documents(chunk_texts)
 
-            # 7. Store chunks in vector store
+            # 7. Store chunks in vector store and keyword index
             self.vector_store.add_chunks(chunks=chunks, embeddings=embeddings)
+            if self.keyword_retriever:
+                self.keyword_retriever.index_chunks(chunks)
 
             # 8. Mark ready
             doc_record.status = DocumentStatus.READY
@@ -253,8 +260,10 @@ class IngestionPipeline:
             chunk_texts = [c.content for c in chunks]
             embeddings = self.embedder.embed_documents(chunk_texts)
 
-            # 6. Store in persistent VectorStore
+            # 6. Store in persistent VectorStore and keyword index
             self.vector_store.add_chunks(chunks=chunks, embeddings=embeddings)
+            if self.keyword_retriever:
+                self.keyword_retriever.index_chunks(chunks)
 
             # 7. Update status to READY
             doc_record.status = DocumentStatus.READY
@@ -279,5 +288,7 @@ class IngestionPipeline:
         if document_id in self.documents_db:
             del self.documents_db[document_id]
             self.vector_store.delete_document(document_id)
+            if self.keyword_retriever:
+                self.keyword_retriever.remove_document(document_id)
             return True
         return False

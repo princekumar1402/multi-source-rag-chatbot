@@ -41,6 +41,24 @@ class Settings(BaseSettings):
     DATA_DIR: str = "data"
     DOCUMENTS_DIR: str = "data/documents"
 
+    # Retrieval & Hybrid Search
+    RETRIEVER_TYPE: str = "hybrid" # "hybrid" or "dense"
+    HYBRID_DENSE_WEIGHT: float = 0.5
+    HYBRID_BM25_WEIGHT: float = 0.5
+    HYBRID_CANDIDATE_K: int = 20
+    HYBRID_RRF_K: int = 60
+
+    # Reranker Settings
+    RERANKER_ENABLED: bool = True
+    RERANKER_PROVIDER: str = "cross-encoder"
+    RERANKER_MODEL: str = "cross-encoder/ms-marco-MiniLM-L-6-v2"
+    RERANKER_DEVICE: str = "cpu"
+
+    # Context Selection & Grounding
+    MAX_CONTEXT_CHUNKS: int = 6
+    MIN_RELEVANCE_SCORE: float = 0.15
+    CONTEXT_OVERLAP_THRESHOLD: float = 0.85
+
     model_config = SettingsConfigDict(
         env_file=".env",
         env_file_encoding="utf-8",

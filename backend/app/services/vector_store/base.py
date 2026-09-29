@@ -47,3 +47,8 @@ class BaseVectorStore(ABC):
     def count(self, workspace_id: Optional[str] = None) -> int:
         """Count total vectors indexed."""
         pass
+
+    @abstractmethod
+    def get_all_chunks(self, filters: Optional[Dict[str, Any]] = None) -> List[DocumentChunk]:
+        """Retrieve all document chunks matching filters."""
+        pass
