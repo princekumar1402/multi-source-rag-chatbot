@@ -1,0 +1,17 @@
+streamlit
+langchain
+langchain-community
+langchain-groq
+langchain-huggingface
+langchain-text-splitters
+faiss-cpu
+sentence-transformers
+unstructured
+youtube-transcript-api
+pytube
+python-dotenv
+torch
+torchvision
+beautifulsoup4
+lxml
+html5lib
