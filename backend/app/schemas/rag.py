@@ -7,8 +7,12 @@ class Citation(BaseModel):
     document_id: str
     source_title: str
     source_type: SourceType
+    file_name: Optional[str] = None
     source_url: Optional[str] = None
     page_number: Optional[int] = None
+    page_index: Optional[int] = None
+    sheet_name: Optional[str] = None
+    row_number: Optional[int] = None
     timestamp_str: Optional[str] = None
     start_time: Optional[float] = None
     end_time: Optional[float] = None

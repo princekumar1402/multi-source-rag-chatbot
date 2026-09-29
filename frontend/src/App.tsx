@@ -4,7 +4,7 @@ import { SourceInput } from './components/SourceInput';
 import { DocumentList } from './components/DocumentList';
 import { ChatView } from './components/ChatView';
 import { DocumentItem, ChatMessage, SystemHealth } from './types';
-import { fetchHealth, fetchDocuments, ingestUrl, deleteDocument, queryRAG } from './services/api';
+import { fetchHealth, fetchDocuments, ingestUrl, uploadFile, deleteDocument, queryRAG } from './services/api';
 
 export const App: React.FC = () => {
   const [health, setHealth] = useState<SystemHealth | null>(null);
@@ -45,10 +45,21 @@ export const App: React.FC = () => {
     }
   };
 
-  const handleIngest = async (url: string) => {
+  const handleIngestUrl = async (url: string) => {
     setIsIngesting(true);
     try {
       await ingestUrl(url);
+      await loadDocuments();
+      await loadHealth();
+    } finally {
+      setIsIngesting(false);
+    }
+  };
+
+  const handleUploadFile = async (file: File) => {
+    setIsIngesting(true);
+    try {
+      await uploadFile(file);
       await loadDocuments();
       await loadHealth();
     } finally {
@@ -118,7 +129,7 @@ export const App: React.FC = () => {
       <main style={{ flex: 1, padding: '0 1rem 1rem 1rem', display: 'flex', gap: '1.25rem', height: 'calc(100vh - 90px)' }}>
         {/* Left Column: Ingestion & Knowledge Sources */}
         <div style={{ width: '400px', display: 'flex', flexDirection: 'column' }}>
-          <SourceInput onIngest={handleIngest} isLoading={isIngesting} />
+          <SourceInput onIngestUrl={handleIngestUrl} onUploadFile={handleUploadFile} isLoading={isIngesting} />
           <div style={{ flex: 1, minHeight: 0 }}>
             <DocumentList
               documents={documents}

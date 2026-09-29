@@ -26,8 +26,12 @@ class ChunkMetadata(BaseModel):
     workspace_id: str = "default"
     source_type: SourceType
     source_name: str
+    file_name: Optional[str] = None
     source_url: Optional[str] = None
     page_number: Optional[int] = None
+    page_index: Optional[int] = None
+    sheet_name: Optional[str] = None
+    row_number: Optional[int] = None
     start_time: Optional[float] = None
     end_time: Optional[float] = None
     timestamp_str: Optional[str] = None

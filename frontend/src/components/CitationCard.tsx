@@ -1,5 +1,5 @@
 import React from 'react';
-import { ExternalLink, Video, FileText, Globe, Clock } from 'lucide-react';
+import { ExternalLink, Video, FileText, Globe, Clock, Table, FileSpreadsheet, FileCode } from 'lucide-react';
 import { Citation } from '../types';
 
 interface CitationCardProps {
@@ -14,6 +14,14 @@ export const CitationCard: React.FC<CitationCardProps> = ({ citation, index }) =
         return <Video size={14} style={{ color: '#ef4444' }} />;
       case 'pdf':
         return <FileText size={14} style={{ color: '#3b82f6' }} />;
+      case 'docx':
+        return <FileText size={14} style={{ color: '#6366f1' }} />;
+      case 'csv':
+        return <Table size={14} style={{ color: '#f59e0b' }} />;
+      case 'xlsx':
+        return <FileSpreadsheet size={14} style={{ color: '#10b981' }} />;
+      case 'markdown':
+        return <FileCode size={14} style={{ color: '#ec4899' }} />;
       default:
         return <Globe size={14} style={{ color: '#10b981' }} />;
     }
@@ -41,12 +49,12 @@ export const CitationCard: React.FC<CitationCardProps> = ({ citation, index }) =
             [Source {index + 1}]
           </span>
           {getIcon()}
-          <span style={{ maxWidth: '280px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+          <span style={{ maxWidth: '260px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
             {citation.source_title}
           </span>
         </div>
 
-        <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '0.375rem', flexWrap: 'wrap' }}>
           {citation.timestamp_str && (
             <span style={{
               display: 'inline-flex',
@@ -75,12 +83,36 @@ export const CitationCard: React.FC<CitationCardProps> = ({ citation, index }) =
             </span>
           )}
 
+          {citation.sheet_name && citation.row_number && (
+            <span style={{
+              fontSize: '0.6875rem',
+              color: '#34d399',
+              background: 'rgba(16, 185, 129, 0.1)',
+              padding: '1px 6px',
+              borderRadius: '4px'
+            }}>
+              {citation.sheet_name} • Row {citation.row_number}
+            </span>
+          )}
+
+          {!citation.sheet_name && citation.row_number && (
+            <span style={{
+              fontSize: '0.6875rem',
+              color: '#fbbf24',
+              background: 'rgba(245, 158, 11, 0.1)',
+              padding: '1px 6px',
+              borderRadius: '4px'
+            }}>
+              Row {citation.row_number}
+            </span>
+          )}
+
           {citation.source_url && (
             <a
               href={citation.source_url}
               target="_blank"
               rel="noopener noreferrer"
-              style={{ color: 'var(--text-muted)', display: 'flex', alignItems: 'center' }}
+              style={{ color: 'var(--text-muted)', display: 'flex', alignItems: 'center', marginLeft: '2px' }}
               title="Open source URL"
             >
               <ExternalLink size={13} />

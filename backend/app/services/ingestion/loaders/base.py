@@ -5,6 +5,9 @@ from pydantic import BaseModel
 class ExtractedSegment(BaseModel):
     text: str
     page_number: int | None = None
+    page_index: int | None = None
+    sheet_name: str | None = None
+    row_number: int | None = None
     start_time: float | None = None
     end_time: float | None = None
     timestamp_str: str | None = None

@@ -14,6 +14,24 @@ export async function fetchDocuments(workspaceId = 'default'): Promise<DocumentI
   return res.json();
 }
 
+export async function uploadFile(file: File, workspaceId = 'default', title?: string): Promise<DocumentItem> {
+  const formData = new FormData();
+  formData.append('file', file);
+  formData.append('workspace_id', workspaceId);
+  if (title) formData.append('title', title);
+
+  const res = await fetch(`${API_BASE}/documents/upload`, {
+    method: 'POST',
+    body: formData
+  });
+
+  const data = await res.json();
+  if (!res.ok) {
+    throw new Error(data.detail || 'Failed to upload document file');
+  }
+  return data;
+}
+
 export async function ingestUrl(url: string, workspaceId = 'default', title?: string): Promise<DocumentItem> {
   const isYouTube = url.includes('youtube.com') || url.includes('youtu.be');
   const endpoint = isYouTube ? `${API_BASE}/documents/youtube` : `${API_BASE}/documents/url`;

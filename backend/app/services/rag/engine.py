@@ -41,6 +41,10 @@ class RAGEngine:
                 source_detail += f" ({meta.timestamp_str})"
             elif meta.source_type == SourceType.PDF and meta.page_number:
                 source_detail += f" (Page {meta.page_number})"
+            elif meta.source_type == SourceType.XLSX and meta.sheet_name and meta.row_number:
+                source_detail += f" (Sheet '{meta.sheet_name}', Row {meta.row_number})"
+            elif meta.source_type == SourceType.CSV and meta.row_number:
+                source_detail += f" (Row {meta.row_number})"
             elif meta.section_title:
                 source_detail += f" (Section: {meta.section_title})"
 
@@ -54,8 +58,12 @@ class RAGEngine:
                     document_id=meta.document_id,
                     source_title=meta.source_name,
                     source_type=meta.source_type,
+                    file_name=meta.file_name,
                     source_url=meta.source_url,
                     page_number=meta.page_number,
+                    page_index=meta.page_index,
+                    sheet_name=meta.sheet_name,
+                    row_number=meta.row_number,
                     timestamp_str=meta.timestamp_str,
                     start_time=meta.start_time,
                     end_time=meta.end_time,

@@ -1,12 +1,13 @@
 import uuid
-from typing import List
+from typing import List, Optional
 from backend.app.services.ingestion.loaders.base import ExtractedDocument, ExtractedSegment
 from backend.app.schemas.document import DocumentChunk, ChunkMetadata, SourceType
 from backend.app.core.config import settings
 
 class MetadataAwareChunker:
     """
-    Intelligent chunker that preserves page numbers, sections, and video timestamp spans.
+    Intelligent chunker that preserves page numbers, sections, sheet names,
+    row numbers, and video timestamp spans.
     """
 
     def __init__(self, chunk_size: int = None, chunk_overlap: int = None):
@@ -38,6 +39,7 @@ class MetadataAwareChunker:
                         workspace_id=workspace_id,
                         source_type=source_type,
                         source_name=doc.title,
+                        file_name=doc.file_name,
                         source_url=doc.source_url,
                         chunk_index=index,
                         token_count=len(slice_text.split())
@@ -52,20 +54,36 @@ class MetadataAwareChunker:
         # Structured segment aggregation
         current_text_parts: List[str] = []
         current_len = 0
-        current_start_time: float | None = None
-        current_end_time: float | None = None
-        current_page: int | None = None
-        current_section: str | None = None
+        current_start_time: Optional[float] = None
+        current_end_time: Optional[float] = None
+        current_page: Optional[int] = None
+        current_page_idx: Optional[int] = None
+        current_sheet: Optional[str] = None
+        current_row: Optional[int] = None
+        current_section: Optional[str] = None
         chunk_index = 0
 
         for seg in doc.segments:
             seg_len = len(seg.text)
+            
+            boundary_changed = False
+            if current_text_parts:
+                if seg.page_number is not None and current_page is not None and seg.page_number != current_page:
+                    boundary_changed = True
+                elif seg.sheet_name is not None and current_sheet is not None and seg.sheet_name != current_sheet:
+                    boundary_changed = True
+                elif seg.row_number is not None and current_row is not None and seg.row_number != current_row:
+                    boundary_changed = True
+
             if not current_text_parts:
                 current_start_time = seg.start_time
                 current_page = seg.page_number
+                current_page_idx = seg.page_index
+                current_sheet = seg.sheet_name
+                current_row = seg.row_number
                 current_section = seg.section_title
 
-            if current_len + seg_len > self.chunk_size and current_text_parts:
+            if (boundary_changed or (current_len + seg_len > self.chunk_size)) and current_text_parts:
                 # Flush current accumulator into a chunk
                 joined_text = " ".join(current_text_parts).strip()
                 if joined_text:
@@ -81,8 +99,12 @@ class MetadataAwareChunker:
                         workspace_id=workspace_id,
                         source_type=source_type,
                         source_name=doc.title,
+                        file_name=doc.file_name,
                         source_url=doc.source_url,
                         page_number=current_page,
+                        page_index=current_page_idx,
+                        sheet_name=current_sheet,
+                        row_number=current_row,
                         start_time=current_start_time,
                         end_time=current_end_time,
                         timestamp_str=time_str,
@@ -99,6 +121,9 @@ class MetadataAwareChunker:
                 current_start_time = seg.start_time
                 current_end_time = seg.end_time
                 current_page = seg.page_number
+                current_page_idx = seg.page_index
+                current_sheet = seg.sheet_name
+                current_row = seg.row_number
                 current_section = seg.section_title
             else:
                 current_text_parts.append(seg.text)
@@ -123,8 +148,12 @@ class MetadataAwareChunker:
                     workspace_id=workspace_id,
                     source_type=source_type,
                     source_name=doc.title,
+                    file_name=doc.file_name,
                     source_url=doc.source_url,
                     page_number=current_page,
+                    page_index=current_page_idx,
+                    sheet_name=current_sheet,
+                    row_number=current_row,
                     start_time=current_start_time,
                     end_time=current_end_time,
                     timestamp_str=time_str,

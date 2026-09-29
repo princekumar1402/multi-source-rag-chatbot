@@ -7,8 +7,12 @@ export interface Citation {
   document_id: string;
   source_title: string;
   source_type: SourceType;
+  file_name?: string;
   source_url?: string;
   page_number?: number;
+  page_index?: number;
+  sheet_name?: string;
+  row_number?: number;
   timestamp_str?: string;
   start_time?: number;
   end_time?: number;
@@ -21,6 +25,7 @@ export interface DocumentItem {
   id: string;
   title: string;
   source_type: SourceType;
+  file_name?: string;
   source_url?: string;
   workspace_id: string;
   status: DocumentStatus;

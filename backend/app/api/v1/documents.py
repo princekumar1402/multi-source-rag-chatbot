@@ -1,4 +1,4 @@
-from fastapi import APIRouter, HTTPException, Depends, Query
+from fastapi import APIRouter, HTTPException, Depends, Query, UploadFile, File, Form
 from typing import List, Optional
 
 from backend.app.schemas.document import (
@@ -11,6 +11,37 @@ from backend.app.core.dependencies import get_ingestion_pipeline
 from backend.app.services.ingestion.pipeline import IngestionPipeline
 
 router = APIRouter()
+
+@router.post("/upload", response_model=DocumentResponse)
+async def upload_file(
+    file: UploadFile = File(...),
+    workspace_id: str = Form("default"),
+    title: Optional[str] = Form(None),
+    pipeline: IngestionPipeline = Depends(get_ingestion_pipeline)
+) -> DocumentResponse:
+    """
+    Upload and ingest a document file (.pdf, .docx, .txt, .md, .csv, .xlsx).
+    Validates file format, detects duplicates via SHA-256, chunks content,
+    and indexes embeddings into persistent FAISS storage.
+    """
+    try:
+        file_bytes = await file.read()
+        file_name = file.filename or "uploaded_file"
+        doc = pipeline.process_file(
+            file_bytes=file_bytes,
+            file_name=file_name,
+            workspace_id=workspace_id,
+            custom_title=title
+        )
+        if doc.status == DocumentStatus.FAILED:
+            raise HTTPException(status_code=400, detail=doc.error_message or "File ingestion failed")
+        return doc
+    except ValueError as ve:
+        raise HTTPException(status_code=400, detail=str(ve))
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Internal file ingestion error: {str(e)}")
 
 @router.post("/url", response_model=DocumentResponse)
 def ingest_web_url(
