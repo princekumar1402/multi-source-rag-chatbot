@@ -27,6 +27,7 @@ class ChatTurn(BaseModel):
 class RAGQueryRequest(BaseModel):
     question: str
     workspace_id: str = "default"
+    conversation_id: Optional[str] = None
     history: List[ChatTurn] = []
     top_k: int = 5
     enable_query_rewriting: bool = True
@@ -43,6 +44,8 @@ class RAGQueryResponse(BaseModel):
     has_sufficient_context: bool = True
     retrieved_count: int = 0
     latency_seconds: float = 0.0
+    conversation_id: Optional[str] = None
     retrieval: Optional[Dict[str, Any]] = None
     latency: Optional[Dict[str, float]] = None
+
     debug: Optional[Dict[str, Any]] = None

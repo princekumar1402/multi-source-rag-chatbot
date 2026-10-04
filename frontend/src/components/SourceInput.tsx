@@ -168,7 +168,7 @@ export const SourceInput: React.FC<SourceInputProps> = ({ onIngestUrl, onUploadF
             {isLoading ? (
               <>
                 <Loader2 size={16} className="animate-spin" />
-                <span>Ingesting...</span>
+                <span>{isYouTube ? 'Processing YouTube video...' : 'Ingesting...'}</span>
               </>
             ) : (
               <>

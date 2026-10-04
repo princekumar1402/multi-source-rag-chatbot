@@ -13,9 +13,20 @@ async def lifespan(app: FastAPI):
     # Pre-warm embedder and vector store
     get_embedder()
     get_vector_store()
+    # Verify DB connection and seed default workspace
+    try:
+        from backend.app.db.session import SessionLocal
+        from backend.app.repositories.workspace_repo import WorkspaceRepository
+        with SessionLocal() as db:
+            WorkspaceRepository.get_or_create(db, workspace_id="default")
+            db.commit()
+        logger.info("Database connection verified and default workspace ready.")
+    except Exception as e:
+        logger.warning(f"Database initialization notice: {e}")
     logger.info("RAG Platform backend initialized successfully.")
     yield
     logger.info("Shutting down RAG Platform backend...")
+
 
 app = FastAPI(
     title=settings.PROJECT_NAME,

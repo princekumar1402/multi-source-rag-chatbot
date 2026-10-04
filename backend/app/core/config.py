@@ -17,11 +17,15 @@ class Settings(BaseSettings):
         "http://localhost:8501"
     ]
 
+    # Database Settings (PostgreSQL / SQLite fallback)
+    DATABASE_URL: str = "postgresql://rag_user:rag_password@localhost:5434/rag_db"
+
     # LLM Settings
     LLM_PROVIDER: str = "groq"
     GROQ_API_KEY: Optional[str] = None
     GROQ_MODEL: str = "llama-3.3-70b-versatile"
     LLM_TEMPERATURE: float = 0.0
+
 
     # Embeddings Settings
     EMBEDDING_PROVIDER: str = "huggingface"
@@ -36,6 +40,14 @@ class Settings(BaseSettings):
     DEFAULT_CHUNK_SIZE: int = 1000
     DEFAULT_CHUNK_OVERLAP: int = 200
     MAX_FILE_SIZE_MB: int = 25
+
+    # YouTube Ingestion Settings
+    YOUTUBE_TRANSCRIPT_PROVIDER: str = "auto" # "auto", "youtube_transcript_api", "ytdlp", "whisper"
+    YOUTUBE_LANGUAGES: List[str] = ["en"]
+    YOUTUBE_ASR_ENABLED: bool = False
+    YOUTUBE_ASR_MODEL: str = "tiny"
+    YOUTUBE_MAX_DURATION_SECONDS: int = 1800 # 30 minutes
+    YOUTUBE_MAX_AUDIO_SIZE_MB: int = 50
 
     # Storage Paths
     DATA_DIR: str = "data"
@@ -60,7 +72,11 @@ class Settings(BaseSettings):
     CONTEXT_OVERLAP_THRESHOLD: float = 0.85
 
     model_config = SettingsConfigDict(
-        env_file=".env",
+        env_file=(
+            os.path.abspath(os.path.join(os.path.dirname(__file__), "../../../.env")),
+            ".env",
+            "backend/.env"
+        ),
         env_file_encoding="utf-8",
         case_sensitive=True,
         extra="ignore"

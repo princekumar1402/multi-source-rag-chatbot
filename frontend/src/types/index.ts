@@ -55,3 +55,20 @@ export interface SystemHealth {
   vector_store: string;
   indexed_chunks: number;
 }
+
+export type IngestionJobStatus = 'pending' | 'processing' | 'completed' | 'failed' | 'cancelled';
+
+export interface IngestionJobItem {
+  job_id: string;
+  document_id?: string;
+  workspace_id: string;
+  status: IngestionJobStatus;
+  stage?: string;
+  progress?: number;
+  error?: string;
+  source_type: string;
+  retry_count: number;
+  created_at: string;
+  started_at?: string;
+  completed_at?: string;
+}

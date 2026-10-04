@@ -161,9 +161,10 @@ class BM25Retriever(BaseKeywordRetriever):
                     if k == "workspace_id" and chunk.metadata.workspace_id != v:
                         match = False
                         break
-                    elif k == "document_ids" and v and chunk.metadata.document_id not in v:
-                        match = False
-                        break
+                    elif k == "document_ids" and v is not None:
+                        if chunk.metadata.document_id not in v:
+                            match = False
+                            break
                     elif k == "document_id" and chunk.metadata.document_id != v:
                         match = False
                         break

@@ -1,4 +1,4 @@
-import { DocumentItem, Citation, SystemHealth } from '../types';
+import { DocumentItem, Citation, SystemHealth, IngestionJobItem } from '../types';
 
 const API_BASE = '/api/v1';
 
@@ -14,7 +14,7 @@ export async function fetchDocuments(workspaceId = 'default'): Promise<DocumentI
   return res.json();
 }
 
-export async function uploadFile(file: File, workspaceId = 'default', title?: string): Promise<DocumentItem> {
+export async function uploadFile(file: File, workspaceId = 'default', title?: string): Promise<IngestionJobItem> {
   const formData = new FormData();
   formData.append('file', file);
   formData.append('workspace_id', workspaceId);
@@ -32,7 +32,7 @@ export async function uploadFile(file: File, workspaceId = 'default', title?: st
   return data;
 }
 
-export async function ingestUrl(url: string, workspaceId = 'default', title?: string): Promise<DocumentItem> {
+export async function ingestUrl(url: string, workspaceId = 'default', title?: string): Promise<IngestionJobItem> {
   const isYouTube = url.includes('youtube.com') || url.includes('youtu.be');
   const endpoint = isYouTube ? `${API_BASE}/documents/youtube` : `${API_BASE}/documents/url`;
 
@@ -45,6 +45,26 @@ export async function ingestUrl(url: string, workspaceId = 'default', title?: st
   const data = await res.json();
   if (!res.ok) {
     throw new Error(data.detail || 'Failed to ingest URL');
+  }
+  return data;
+}
+
+export async function fetchJobStatus(jobId: string): Promise<IngestionJobItem> {
+  const res = await fetch(`${API_BASE}/ingestion/jobs/${jobId}`);
+  const data = await res.json();
+  if (!res.ok) {
+    throw new Error(data.detail || 'Failed to fetch job status');
+  }
+  return data;
+}
+
+export async function retryJob(jobId: string): Promise<IngestionJobItem> {
+  const res = await fetch(`${API_BASE}/ingestion/jobs/${jobId}/retry`, {
+    method: 'POST'
+  });
+  const data = await res.json();
+  if (!res.ok) {
+    throw new Error(data.detail || 'Failed to retry job');
   }
   return data;
 }
@@ -69,19 +89,25 @@ export interface QueryResponse {
 export async function queryRAG(
   question: string,
   history: { role: string; content: string }[] = [],
-  workspaceId = 'default'
+  workspaceId = 'default',
+  documentIds?: string[]
 ): Promise<QueryResponse> {
+  const payload: any = {
+    question,
+    history,
+    workspace_id: workspaceId,
+    top_k: 5,
+    enable_query_rewriting: true,
+    enable_reranking: true
+  };
+  if (documentIds && documentIds.length > 0) {
+    payload.document_ids = documentIds;
+  }
+
   const res = await fetch(`${API_BASE}/chat/query`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-      question,
-      history,
-      workspace_id: workspaceId,
-      top_k: 5,
-      enable_query_rewriting: true,
-      enable_reranking: true
-    })
+    body: JSON.stringify(payload)
   });
 
   const data = await res.json();

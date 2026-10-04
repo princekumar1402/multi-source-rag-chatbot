@@ -1,6 +1,6 @@
-# 🌐 URL Summarizer & RAG Chatbot
+# 🌐 Multi-Source RAG Chatbot
 
-A GenAI-powered application that summarizes content from websites and YouTube videos, generates key takeaways, and enables users to ask questions using Retrieval-Augmented Generation (RAG).
+A GenAI-powered application that ingests content from websites, YouTube videos, PDFs, DOCX, TXT, MD, CSV, XLSX, and documents, enables async ingestion, database workspace persistence, and allows users to ask questions using hybrid search (BM25 + Dense FAISS) and reranked Retrieval-Augmented Generation (RAG).
 
 ## 🚀 Live Demo
 
@@ -10,87 +10,54 @@ https://youtube-website-rag-chatbot-6xwiv7yqy6xxpmqjjwnnzm.streamlit.app/
 
 ## ✨ Features
 
-* 🌐 Website Content Summarization
-* 📺 YouTube Video Summarization
-* 📝 Key Takeaways Generation
-* 🤖 RAG-based Question Answering
-* 🔍 Semantic Search with FAISS
-* 🧠 HuggingFace Embeddings
-* ⚡ Groq LLM Integration
-* 🎨 Streamlit User Interface
+* 🌐 Website Content Summarization & Ingestion
+* 📺 YouTube Video Transcripts & Metadata Ingestion
+* 📄 Multi-Format Document Ingestion (PDF, DOCX, TXT, MD, CSV, XLSX)
+* ⚡ Async Background Ingestion Pipeline with Progress Tracking
+* 🗄️ PostgreSQL Workspace & Conversation History Persistence
+* 🎯 Document-Scoped Retrieval & Filtering
+* 🔍 Hybrid Search (Dense FAISS Embeddings + BM25 Lexical Search + Reciprocal Rank Fusion / Cross-Encoder Reranking)
+* 📝 Citation Validation & Verification
+* 🤖 RAG-based Question Answering with Groq LLM Integration
+* 🎨 Modern Glassmorphism React + TypeScript Frontend & FastAPI Backend
 
 ## 🏗️ Architecture
 
 ```text
-User URL
+Sources (YouTube, Web, PDF, DOCX, CSV, XLSX, TXT, MD)
    ↓
-Content Loader
-(Website / YouTube)
+Async Job Ingestion Pipeline / Loaders
    ↓
-Document Processing
+Document Processing & Text Chunking
    ↓
-Text Chunking
+HuggingFace Embeddings + BM25 Tokenizer
    ↓
-HuggingFace Embeddings
+FAISS Vector Store + PostgreSQL Metadata
    ↓
-FAISS Vector Store
-   ↓
-Retriever
+Hybrid Retriever (Dense + Sparse) & Reranker
    ↓
 Groq LLM
    ↓
-Summary & Answers
+Citations & Verified Answers
 ```
 
 ## 🛠️ Tech Stack
 
-* Python
-* Streamlit
-* LangChain
-* Groq (Llama 3.3 70B)
+* Python & FastAPI
+* React & TypeScript (Vite)
+* PostgreSQL & SQLAlchemy (Alembic)
+* FAISS Vector Store
 * HuggingFace Embeddings
-* FAISS
-* UnstructuredURLLoader
-* YoutubeLoader
-* python-dotenv
-
-## 📂 Project Workflow
-
-### Summarization Flow
-
-```text
-URL
- ↓
-Load Content
- ↓
-Generate Summary
- ↓
-Display Summary
-```
-
-### RAG Question Answering Flow
-
-```text
-Question
- ↓
-Retriever
- ↓
-Relevant Chunks
- ↓
-Context Creation
- ↓
-Groq LLM
- ↓
-Answer
-```
+* Groq (Llama 3.3 70B)
+* Docker Compose
 
 ## ⚙️ Installation
 
 Clone the repository:
 
 ```bash
-git clone https://github.com/princekumar1402/youtube-website-rag-chatbot.git
-cd youtube-website-rag-chatbot
+git clone https://github.com/princekumar1402/multi-source-rag-chatbot.git
+cd multi-source-rag-chatbot
 ```
 
 Create a virtual environment:

@@ -3,6 +3,8 @@ import uuid
 import datetime
 from typing import Dict, Any, List, Optional
 
+from sqlalchemy.orm import Session, sessionmaker
+
 from backend.app.services.ingestion.loaders.base import BaseLoader, ExtractedDocument
 from backend.app.services.ingestion.loaders.web_loader import WebLoader
 from backend.app.services.ingestion.loaders.youtube_loader import YouTubeLoader
@@ -21,6 +23,14 @@ from backend.app.core.security import compute_content_hash, compute_file_hash, n
 from backend.app.core.config import settings
 from backend.app.core.logging import logger
 
+from backend.app.db.session import SessionLocal
+from backend.app.models.document import Document
+from backend.app.repositories.workspace_repo import WorkspaceRepository
+from backend.app.repositories.document_repo import DocumentRepository
+from backend.app.repositories.chunk_repo import ChunkRepository
+from backend.app.repositories.ingestion_job_repo import IngestionJobRepository
+from backend.app.services.rag.bm25 import BaseKeywordRetriever
+
 SUPPORTED_FILE_EXTENSIONS = {
     ".pdf": SourceType.PDF,
     ".docx": SourceType.DOCX,
@@ -31,13 +41,11 @@ SUPPORTED_FILE_EXTENSIONS = {
     ".xlsx": SourceType.XLSX,
 }
 
-from backend.app.services.rag.bm25 import BaseKeywordRetriever
-
 class IngestionPipeline:
     """
     Coordinates multi-source extraction (Files, Web, YouTube),
     deduplication, metadata preservation, chunking, embedding, vector persistence,
-    and BM25 keyword index synchronization.
+    BM25 keyword index synchronization, and authoritative PostgreSQL persistence.
     """
 
     def __init__(
@@ -45,14 +53,40 @@ class IngestionPipeline:
         embedder: BaseEmbedder,
         vector_store: BaseVectorStore,
         chunker: Optional[MetadataAwareChunker] = None,
-        keyword_retriever: Optional[BaseKeywordRetriever] = None
+        keyword_retriever: Optional[BaseKeywordRetriever] = None,
+        session_factory: Optional[sessionmaker] = None
     ):
         self.embedder = embedder
         self.vector_store = vector_store
         self.chunker = chunker or MetadataAwareChunker()
         self.keyword_retriever = keyword_retriever
-        # In-memory document registry for Phase 1 & 2 (migrated to PostgreSQL in Phase 4)
-        self.documents_db: Dict[str, DocumentResponse] = {}
+        self.session_factory = session_factory or SessionLocal
+
+    @property
+    def documents_db(self) -> Dict[str, DocumentResponse]:
+        """Backward-compatibility view for any legacy component inspecting documents_db."""
+        with self.session_factory() as db:
+            docs = DocumentRepository.list_by_workspace(db, workspace_id="default", limit=1000)
+            return {doc.id: self._doc_to_response(doc) for doc in docs}
+
+    def _doc_to_response(self, doc: Document) -> DocumentResponse:
+        """Converts an authoritative Document ORM model into a validated DocumentResponse schema."""
+        return DocumentResponse(
+            id=doc.id,
+            title=doc.title,
+            source_type=SourceType(doc.source_type),
+            source_url=doc.source_url,
+            file_name=doc.file_name,
+            workspace_id=doc.workspace_id,
+            doc_version=1,
+            status=DocumentStatus(doc.status),
+            content_hash=doc.content_hash,
+            chunk_count=doc.chunk_count,
+            error_message=doc.error_message,
+            created_at=doc.created_at,
+            updated_at=doc.updated_at,
+            metadata=dict(doc.doc_metadata) if doc.doc_metadata else {}
+        )
 
     def get_loader_for_url(self, url: str) -> BaseLoader:
         """Source detector that creates the appropriate web or video loader."""
@@ -126,75 +160,146 @@ class IngestionPipeline:
         # 2. Compute SHA-256 hash for deduplication
         file_hash = compute_file_hash(file_bytes)
 
-        # Check for existing document in workspace with identical content hash
-        for existing in self.documents_db.values():
-            if existing.workspace_id == workspace_id and existing.content_hash == file_hash:
-                logger.info(f"Duplicate document detected by file hash: {existing.id} ('{existing.title}')")
-                return existing
+        with self.session_factory() as db:
+            # Ensure workspace exists in PostgreSQL
+            WorkspaceRepository.get_or_create(db, workspace_id=workspace_id)
 
-        doc_id = str(uuid.uuid4())
-        now = datetime.datetime.now(datetime.timezone.utc)
-        doc_title = custom_title or os.path.splitext(file_name)[0]
+            # Check for existing document in workspace with identical content hash
+            existing = DocumentRepository.find_by_hash(db, workspace_id=workspace_id, content_hash=file_hash)
+            if existing:
+                logger.info(f"Duplicate document detected by file hash in DB: {existing.id} ('{existing.title}')")
+                return self._doc_to_response(existing)
 
-        # 3. Create document record
-        doc_record = DocumentResponse(
-            id=doc_id,
-            title=doc_title,
-            source_type=source_type,
-            file_name=file_name,
-            workspace_id=workspace_id,
-            status=DocumentStatus.PROCESSING,
-            content_hash=file_hash,
-            chunk_count=0,
-            created_at=now,
-            updated_at=now,
-            metadata={"file_name": file_name, "file_size_bytes": len(file_bytes)}
-        )
-        self.documents_db[doc_id] = doc_record
+            doc_id = str(uuid.uuid4())
+            doc_title = custom_title or os.path.splitext(file_name)[0]
 
-        try:
-            # 4. Extract content via specialized loader
-            loader = self.get_loader_for_file(file_bytes, file_name, source_type)
-            extracted: ExtractedDocument = loader.load()
-
-            if custom_title:
-                extracted.title = custom_title
-            doc_record.title = extracted.title
-            doc_record.metadata.update(extracted.metadata)
-
-            # 5. Chunk with metadata preservation
-            chunks = self.chunker.chunk_document(
-                doc=extracted,
+            # 3. Create document record in PENDING status
+            doc_record = DocumentRepository.create(
+                db=db,
+                workspace_id=workspace_id,
+                source_type=source_type.value,
+                title=doc_title,
+                content_hash=file_hash,
                 document_id=doc_id,
-                workspace_id=workspace_id
+                file_name=file_name,
+                status="pending",
+                size_bytes=len(file_bytes),
+                doc_metadata={"file_name": file_name, "file_size_bytes": len(file_bytes)}
             )
 
-            if not chunks:
-                doc_record.status = DocumentStatus.FAILED
-                doc_record.error_message = "File produced zero extractable chunks."
-                return doc_record
+            # 4. Create IngestionJob record in PENDING status
+            job = IngestionJobRepository.create(
+                db=db,
+                workspace_id=workspace_id,
+                source_type=source_type.value,
+                document_id=doc_id,
+                status="pending"
+            )
 
-            # 6. Generate embeddings
-            chunk_texts = [c.content for c in chunks]
-            embeddings = self.embedder.embed_documents(chunk_texts)
+            # Transition to PROCESSING
+            DocumentRepository.update_status(db, doc_id, status="processing")
+            IngestionJobRepository.update_status(db, job.id, status="processing")
+            db.commit()
 
-            # 7. Store chunks in vector store and keyword index
-            self.vector_store.add_chunks(chunks=chunks, embeddings=embeddings)
-            if self.keyword_retriever:
-                self.keyword_retriever.index_chunks(chunks)
+            try:
+                # 5. Extract content via specialized loader
+                loader = self.get_loader_for_file(file_bytes, file_name, source_type)
+                extracted: ExtractedDocument = loader.load()
 
-            # 8. Mark ready
-            doc_record.status = DocumentStatus.READY
-            doc_record.chunk_count = len(chunks)
-            doc_record.updated_at = datetime.datetime.now(datetime.timezone.utc)
-            logger.info(f"Successfully processed file '{file_name}': {len(chunks)} chunks indexed.")
-            return doc_record
+                if custom_title:
+                    extracted.title = custom_title
 
-        except Exception as e:
-            logger.error(f"Error processing file '{file_name}': {e}")
-            doc_record.status = DocumentStatus.FAILED
-            doc_record.error_message = str(e)
-            return doc_record
+                # 6. Chunk with metadata preservation
+                chunks = self.chunker.chunk_document(
+                    doc=extracted,
+                    document_id=doc_id,
+                    workspace_id=workspace_id
+                )
+
+                if not chunks:
+                    DocumentRepository.update_status(
+                        db,
+                        doc_id,
+                        status="failed",
+                        error_message="File produced zero extractable chunks."
+                    )
+                    IngestionJobRepository.update_status(
+                        db,
+                        job.id,
+                        status="failed",
+                        error_message="File produced zero extractable chunks."
+                    )
+                    db.commit()
+                    return self._doc_to_response(DocumentRepository.get(db, doc_id))
+
+                # 7. Persist chunks into PostgreSQL
+                chunks_data = [
+                    {
+                        "id": c.chunk_id,
+                        "document_id": doc_id,
+                        "workspace_id": workspace_id,
+                        "chunk_index": c.metadata.chunk_index,
+                        "text": c.content,
+                        "content_hash": compute_content_hash(c.content),
+                        "source_type": c.metadata.source_type.value if hasattr(c.metadata.source_type, "value") else str(c.metadata.source_type),
+                        "source_name": c.metadata.source_name,
+                        "file_name": c.metadata.file_name,
+                        "source_url": c.metadata.source_url,
+                        "page_number": c.metadata.page_number,
+                        "page_index": c.metadata.page_index,
+                        "sheet_name": c.metadata.sheet_name,
+                        "row_number": c.metadata.row_number,
+                        "timestamp_str": c.metadata.timestamp_str,
+                        "start_time": c.metadata.start_time,
+                        "end_time": c.metadata.end_time,
+                        "section_title": c.metadata.section_title,
+                        "token_count": c.metadata.token_count
+                    }
+                    for c in chunks
+                ]
+                ChunkRepository.create_many(db, chunks_data)
+
+                # 8. Generate embeddings
+                chunk_texts = [c.content for c in chunks]
+                embeddings = self.embedder.embed_documents(chunk_texts)
+
+                # 9. Store chunks in vector store and keyword index
+                self.vector_store.add_chunks(chunks=chunks, embeddings=embeddings)
+                if self.keyword_retriever:
+                    self.keyword_retriever.index_chunks(chunks)
+
+                # 10. Mark READY and COMPLETED
+                merged_meta = dict(doc_record.doc_metadata)
+                merged_meta.update(extracted.metadata)
+                updated_doc = DocumentRepository.update_status(
+                    db,
+                    doc_id,
+                    status="ready",
+                    chunk_count=len(chunks),
+                    title=extracted.title,
+                    metadata=merged_meta
+                )
+                IngestionJobRepository.update_status(db, job.id, status="completed")
+                db.commit()
+                logger.info(f"Successfully processed file '{file_name}': {len(chunks)} chunks indexed and persisted.")
+                return self._doc_to_response(updated_doc)
+
+            except Exception as e:
+                logger.error(f"Error processing file '{file_name}': {e}")
+                updated_doc = DocumentRepository.update_status(
+                    db,
+                    doc_id,
+                    status="failed",
+                    error_message=str(e)
+                )
+                IngestionJobRepository.update_status(
+                    db,
+                    job.id,
+                    status="failed",
+                    error_message=str(e)
+                )
+                db.commit()
+                return self._doc_to_response(updated_doc)
 
     def process_url(
         self,
@@ -203,7 +308,7 @@ class IngestionPipeline:
         custom_title: Optional[str] = None
     ) -> DocumentResponse:
         logger.info(f"Ingesting URL: {url} into workspace: {workspace_id}")
-        
+
         # 1. Instantiate loader
         loader = self.get_loader_for_url(url)
         extracted: ExtractedDocument = loader.load()
@@ -214,81 +319,174 @@ class IngestionPipeline:
         # 2. Content hash for deduplication
         content_hash = compute_content_hash(extracted.full_text)
 
-        # Check for existing document in workspace with same hash or normalized URL
-        for existing in self.documents_db.values():
-            if existing.workspace_id == workspace_id:
-                if existing.content_hash == content_hash:
-                    logger.info(f"Duplicate document detected by content hash: {existing.id} ({existing.title})")
-                    return existing
-                if existing.source_url and normalize_url(existing.source_url) == normalize_url(extracted.source_url or ""):
-                    logger.info(f"Duplicate document detected by URL: {existing.id}")
-                    return existing
+        with self.session_factory() as db:
+            # Ensure workspace exists
+            WorkspaceRepository.get_or_create(db, workspace_id=workspace_id)
 
-        doc_id = str(uuid.uuid4())
-        now = datetime.datetime.now(datetime.timezone.utc)
+            # Check for existing document by hash or normalized URL
+            existing = DocumentRepository.find_by_hash(db, workspace_id=workspace_id, content_hash=content_hash)
+            if not existing and extracted.source_url:
+                existing = DocumentRepository.find_by_url(db, workspace_id=workspace_id, source_url=extracted.source_url)
 
-        # 3. Create document record
-        doc_record = DocumentResponse(
-            id=doc_id,
-            title=extracted.title,
-            source_type=SourceType(extracted.source_type),
-            source_url=extracted.source_url,
-            workspace_id=workspace_id,
-            status=DocumentStatus.PROCESSING,
-            content_hash=content_hash,
-            chunk_count=0,
-            created_at=now,
-            updated_at=now,
-            metadata=extracted.metadata
-        )
-        self.documents_db[doc_id] = doc_record
+            if existing:
+                logger.info(f"Duplicate document detected in DB: {existing.id} ({existing.title})")
+                return self._doc_to_response(existing)
 
-        try:
-            # 4. Chunk document preserving metadata
-            chunks = self.chunker.chunk_document(
-                doc=extracted,
+            doc_id = str(uuid.uuid4())
+
+            # 3. Create Document record in PENDING status
+            doc_record = DocumentRepository.create(
+                db=db,
+                workspace_id=workspace_id,
+                source_type=extracted.source_type,
+                title=extracted.title,
+                content_hash=content_hash,
                 document_id=doc_id,
-                workspace_id=workspace_id
+                source_url=extracted.source_url,
+                status="pending",
+                doc_metadata=extracted.metadata
             )
 
-            if not chunks:
-                doc_record.status = DocumentStatus.FAILED
-                doc_record.error_message = "Document produced zero usable chunks."
-                return doc_record
+            # 4. Create IngestionJob record
+            job = IngestionJobRepository.create(
+                db=db,
+                workspace_id=workspace_id,
+                source_type=extracted.source_type,
+                document_id=doc_id,
+                status="pending"
+            )
 
-            # 5. Generate embeddings in batch
-            chunk_texts = [c.content for c in chunks]
-            embeddings = self.embedder.embed_documents(chunk_texts)
+            # Transition to PROCESSING
+            DocumentRepository.update_status(db, doc_id, status="processing")
+            IngestionJobRepository.update_status(db, job.id, status="processing")
+            db.commit()
 
-            # 6. Store in persistent VectorStore and keyword index
-            self.vector_store.add_chunks(chunks=chunks, embeddings=embeddings)
-            if self.keyword_retriever:
-                self.keyword_retriever.index_chunks(chunks)
+            try:
+                # 5. Chunk document preserving metadata
+                chunks = self.chunker.chunk_document(
+                    doc=extracted,
+                    document_id=doc_id,
+                    workspace_id=workspace_id
+                )
 
-            # 7. Update status to READY
-            doc_record.status = DocumentStatus.READY
-            doc_record.chunk_count = len(chunks)
-            doc_record.updated_at = datetime.datetime.now(datetime.timezone.utc)
-            logger.info(f"Successfully ingested '{doc_record.title}' with {len(chunks)} chunks.")
-            return doc_record
+                if not chunks:
+                    DocumentRepository.update_status(
+                        db,
+                        doc_id,
+                        status="failed",
+                        error_message="Document produced zero usable chunks."
+                    )
+                    IngestionJobRepository.update_status(
+                        db,
+                        job.id,
+                        status="failed",
+                        error_message="Document produced zero usable chunks."
+                    )
+                    db.commit()
+                    return self._doc_to_response(DocumentRepository.get(db, doc_id))
 
-        except Exception as e:
-            logger.error(f"Error during ingestion pipeline execution for {url}: {e}")
-            doc_record.status = DocumentStatus.FAILED
-            doc_record.error_message = str(e)
-            return doc_record
+                # 6. Persist chunks into PostgreSQL
+                chunks_data = [
+                    {
+                        "id": c.chunk_id,
+                        "document_id": doc_id,
+                        "workspace_id": workspace_id,
+                        "chunk_index": c.metadata.chunk_index,
+                        "text": c.content,
+                        "content_hash": compute_content_hash(c.content),
+                        "source_type": c.metadata.source_type.value if hasattr(c.metadata.source_type, "value") else str(c.metadata.source_type),
+                        "source_name": c.metadata.source_name,
+                        "file_name": c.metadata.file_name,
+                        "source_url": c.metadata.source_url,
+                        "page_number": c.metadata.page_number,
+                        "page_index": c.metadata.page_index,
+                        "sheet_name": c.metadata.sheet_name,
+                        "row_number": c.metadata.row_number,
+                        "timestamp_str": c.metadata.timestamp_str,
+                        "start_time": c.metadata.start_time,
+                        "end_time": c.metadata.end_time,
+                        "section_title": c.metadata.section_title,
+                        "token_count": c.metadata.token_count
+                    }
+                    for c in chunks
+                ]
+                ChunkRepository.create_many(db, chunks_data)
+
+                # 7. Generate embeddings in batch
+                chunk_texts = [c.content for c in chunks]
+                embeddings = self.embedder.embed_documents(chunk_texts)
+
+                # 8. Store in persistent VectorStore and keyword index
+                self.vector_store.add_chunks(chunks=chunks, embeddings=embeddings)
+                if self.keyword_retriever:
+                    self.keyword_retriever.index_chunks(chunks)
+
+                # 9. Update status to READY
+                updated_doc = DocumentRepository.update_status(
+                    db,
+                    doc_id,
+                    status="ready",
+                    chunk_count=len(chunks),
+                    title=extracted.title,
+                    metadata=extracted.metadata
+                )
+                IngestionJobRepository.update_status(db, job.id, status="completed")
+                db.commit()
+                logger.info(f"Successfully ingested '{doc_record.title}' with {len(chunks)} chunks.")
+                return self._doc_to_response(updated_doc)
+
+            except Exception as e:
+                logger.error(f"Error during ingestion pipeline execution for {url}: {e}")
+                updated_doc = DocumentRepository.update_status(
+                    db,
+                    doc_id,
+                    status="failed",
+                    error_message=str(e)
+                )
+                IngestionJobRepository.update_status(
+                    db,
+                    job.id,
+                    status="failed",
+                    error_message=str(e)
+                )
+                db.commit()
+                return self._doc_to_response(updated_doc)
 
     def list_documents(self, workspace_id: str = "default") -> List[DocumentResponse]:
-        return [doc for doc in self.documents_db.values() if doc.workspace_id == workspace_id]
+        """Queries PostgreSQL for all documents belonging to workspace_id."""
+        with self.session_factory() as db:
+            docs = DocumentRepository.list_by_workspace(db, workspace_id=workspace_id)
+            return [self._doc_to_response(doc) for doc in docs]
 
     def get_document(self, document_id: str) -> Optional[DocumentResponse]:
-        return self.documents_db.get(document_id)
+        """Retrieves single document from PostgreSQL by document_id."""
+        with self.session_factory() as db:
+            doc = DocumentRepository.get(db, document_id)
+            if not doc:
+                return None
+            return self._doc_to_response(doc)
 
     def delete_document(self, document_id: str) -> bool:
-        if document_id in self.documents_db:
-            del self.documents_db[document_id]
+        """
+        Purges document and chunks from:
+        1. FAISS vector store
+        2. BM25 keyword index
+        3. PostgreSQL database (cascading chunks and jobs)
+        """
+        with self.session_factory() as db:
+            doc = DocumentRepository.get(db, document_id)
+            if not doc:
+                return False
+
+            # 1. Remove vectors from FAISS
             self.vector_store.delete_document(document_id)
+
+            # 2. Remove tokens from BM25
             if self.keyword_retriever:
                 self.keyword_retriever.remove_document(document_id)
-            return True
-        return False
+
+            # 3. Delete PostgreSQL chunks and document
+            ChunkRepository.delete_by_document(db, document_id)
+            deleted = DocumentRepository.delete(db, document_id)
+            db.commit()
+            return deleted

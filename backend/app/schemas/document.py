@@ -16,9 +16,12 @@ class SourceType(str, Enum):
 
 class DocumentStatus(str, Enum):
     QUEUED = "queued"
+    PENDING = "pending"
     PROCESSING = "processing"
     READY = "ready"
     FAILED = "failed"
+    DELETED = "deleted"
+
 
 class ChunkMetadata(BaseModel):
     chunk_id: str = Field(default_factory=lambda: str(uuid.uuid4()))

@@ -14,6 +14,9 @@ from backend.app.services.rag.context_selector import ContextSelector
 from backend.app.services.rag.engine import RAGEngine
 from backend.app.core.config import settings
 
+from backend.app.services.ingestion.job_runner import IngestionJobRunner
+from backend.app.services.ingestion.job_service import IngestionJobService
+
 # Global singletons for runtime efficiency
 _embedder: Optional[BaseEmbedder] = None
 _vector_store: Optional[BaseVectorStore] = None
@@ -23,6 +26,8 @@ _retriever: Optional[BaseRetriever] = None
 _llm: Optional[BaseLLM] = None
 _pipeline: Optional[IngestionPipeline] = None
 _rag_engine: Optional[RAGEngine] = None
+_job_runner: Optional[IngestionJobRunner] = None
+_job_service: Optional[IngestionJobService] = None
 
 def get_embedder() -> BaseEmbedder:
     global _embedder
@@ -106,6 +111,21 @@ def get_ingestion_pipeline() -> IngestionPipeline:
             keyword_retriever=get_bm25_retriever()
         )
     return _pipeline
+
+def get_ingestion_job_runner() -> IngestionJobRunner:
+    global _job_runner
+    if _job_runner is None:
+        _job_runner = IngestionJobRunner(pipeline=get_ingestion_pipeline())
+    return _job_runner
+
+def get_ingestion_job_service() -> IngestionJobService:
+    global _job_service
+    if _job_service is None:
+        _job_service = IngestionJobService(
+            pipeline=get_ingestion_pipeline(),
+            runner=get_ingestion_job_runner()
+        )
+    return _job_service
 
 def get_rag_engine() -> RAGEngine:
     global _rag_engine

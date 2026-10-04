@@ -1,10 +1,20 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { Header } from './components/Header';
 import { SourceInput } from './components/SourceInput';
 import { DocumentList } from './components/DocumentList';
 import { ChatView } from './components/ChatView';
-import { DocumentItem, ChatMessage, SystemHealth } from './types';
-import { fetchHealth, fetchDocuments, ingestUrl, uploadFile, deleteDocument, queryRAG } from './services/api';
+import { ActiveJobCard } from './components/ActiveJobCard';
+import { DocumentItem, ChatMessage, SystemHealth, IngestionJobItem } from './types';
+import {
+  fetchHealth,
+  fetchDocuments,
+  ingestUrl,
+  uploadFile,
+  deleteDocument,
+  queryRAG,
+  fetchJobStatus,
+  retryJob
+} from './services/api';
 
 export const App: React.FC = () => {
   const [health, setHealth] = useState<SystemHealth | null>(null);
@@ -12,7 +22,11 @@ export const App: React.FC = () => {
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [isIngesting, setIsIngesting] = useState(false);
   const [isChatLoading, setIsChatLoading] = useState(false);
+  const [selectedScope, setSelectedScope] = useState<string[]>([]);
+  const [activeJob, setActiveJob] = useState<IngestionJobItem | null>(null);
   const [darkMode, setDarkMode] = useState(true);
+
+  const pollingIntervalRef = useRef<any>(null);
 
   useEffect(() => {
     loadHealth();
@@ -26,6 +40,14 @@ export const App: React.FC = () => {
       document.body.classList.add('light-theme');
     }
   }, [darkMode]);
+
+  useEffect(() => {
+    return () => {
+      if (pollingIntervalRef.current) {
+        clearInterval(pollingIntervalRef.current);
+      }
+    };
+  }, []);
 
   const loadHealth = async () => {
     try {
@@ -45,12 +67,43 @@ export const App: React.FC = () => {
     }
   };
 
+  const startPolling = (jobId: string) => {
+    if (pollingIntervalRef.current) {
+      clearInterval(pollingIntervalRef.current);
+    }
+
+    pollingIntervalRef.current = setInterval(async () => {
+      try {
+        const job = await fetchJobStatus(jobId);
+        setActiveJob(job);
+
+        if (job.status === 'completed') {
+          clearInterval(pollingIntervalRef.current);
+          pollingIntervalRef.current = null;
+          await loadDocuments();
+          await loadHealth();
+          // Auto-clear success message after 4 seconds
+          setTimeout(() => {
+            setActiveJob((current) => (current?.job_id === jobId ? null : current));
+          }, 4000);
+        } else if (job.status === 'failed') {
+          clearInterval(pollingIntervalRef.current);
+          pollingIntervalRef.current = null;
+          await loadDocuments();
+        }
+      } catch (err) {
+        console.error('Job status polling error', err);
+      }
+    }, 1000);
+  };
+
   const handleIngestUrl = async (url: string) => {
     setIsIngesting(true);
     try {
-      await ingestUrl(url);
+      const job = await ingestUrl(url);
+      setActiveJob(job);
       await loadDocuments();
-      await loadHealth();
+      startPolling(job.job_id);
     } finally {
       setIsIngesting(false);
     }
@@ -59,17 +112,30 @@ export const App: React.FC = () => {
   const handleUploadFile = async (file: File) => {
     setIsIngesting(true);
     try {
-      await uploadFile(file);
+      const job = await uploadFile(file);
+      setActiveJob(job);
       await loadDocuments();
-      await loadHealth();
+      startPolling(job.job_id);
     } finally {
       setIsIngesting(false);
+    }
+  };
+
+  const handleRetryJob = async (jobId: string) => {
+    try {
+      const retried = await retryJob(jobId);
+      setActiveJob(retried);
+      await loadDocuments();
+      startPolling(retried.job_id);
+    } catch (err: any) {
+      console.error('Failed to retry job', err);
     }
   };
 
   const handleDelete = async (id: string) => {
     try {
       await deleteDocument(id);
+      setSelectedScope((prev) => prev.filter((dId) => dId !== id));
       await loadDocuments();
       await loadHealth();
     } catch (e) {
@@ -93,7 +159,7 @@ export const App: React.FC = () => {
         content: m.content
       }));
 
-      const response = await queryRAG(text, historyPayload);
+      const response = await queryRAG(text, historyPayload, 'default', selectedScope);
 
       const assistantMessage: ChatMessage = {
         id: (Date.now() + 1).toString(),
@@ -109,7 +175,7 @@ export const App: React.FC = () => {
       const errorMessage: ChatMessage = {
         id: (Date.now() + 1).toString(),
         role: 'assistant',
-        content: `Error retrieving answer: ${err.message || 'Unknown error'}`
+        content: `Error: ${err.message || 'Failed to generate response.'}`
       };
       setMessages((prev) => [...prev, errorMessage]);
     } finally {
@@ -130,6 +196,15 @@ export const App: React.FC = () => {
         {/* Left Column: Ingestion & Knowledge Sources */}
         <div style={{ width: '400px', display: 'flex', flexDirection: 'column' }}>
           <SourceInput onIngestUrl={handleIngestUrl} onUploadFile={handleUploadFile} isLoading={isIngesting} />
+
+          {activeJob && (
+            <ActiveJobCard
+              job={activeJob}
+              onRetry={handleRetryJob}
+              onDismiss={() => setActiveJob(null)}
+            />
+          )}
+
           <div style={{ flex: 1, minHeight: 0 }}>
             <DocumentList
               documents={documents}
@@ -146,6 +221,9 @@ export const App: React.FC = () => {
             onSendMessage={handleSendMessage}
             isLoading={isChatLoading}
             hasDocuments={documents.length > 0}
+            documents={documents}
+            selectedScope={selectedScope}
+            onScopeChange={setSelectedScope}
           />
         </div>
       </main>

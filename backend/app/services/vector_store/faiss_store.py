@@ -58,8 +58,11 @@ class FAISSVectorStore(BaseVectorStore):
         q_vec = np.array([query_vector], dtype=np.float32)
         faiss.normalize_L2(q_vec)
 
-        # Retrieve a candidate pool larger than top_k to accommodate metadata filtering
-        fetch_k = min(self.index.ntotal, max(top_k * 4, 20))
+        # Retrieve candidate pool: when scoping by document(s), search full index to avoid premature truncation
+        if filters and ("document_ids" in filters or "document_id" in filters or "source_type" in filters):
+            fetch_k = self.index.ntotal
+        else:
+            fetch_k = min(self.index.ntotal, max(top_k * 4, 20))
         scores, indices = self.index.search(q_vec, fetch_k)
 
         results: List[Tuple[DocumentChunk, float]] = []
@@ -75,7 +78,11 @@ class FAISSVectorStore(BaseVectorStore):
                     if k == "workspace_id" and chunk.metadata.workspace_id != v:
                         match = False
                         break
-                    elif k == "document_ids" and v and chunk.metadata.document_id not in v:
+                    elif k == "document_ids" and v is not None:
+                        if chunk.metadata.document_id not in v:
+                            match = False
+                            break
+                    elif k == "document_id" and chunk.metadata.document_id != v:
                         match = False
                         break
                     elif k == "source_type" and chunk.metadata.source_type != v:

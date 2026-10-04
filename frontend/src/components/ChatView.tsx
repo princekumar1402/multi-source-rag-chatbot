@@ -1,6 +1,6 @@
 import React, { useState, useRef, useEffect } from 'react';
-import { Send, Bot, User, Sparkles, Loader2, Info } from 'lucide-react';
-import { ChatMessage } from '../types';
+import { Send, Bot, User, Sparkles, Loader2, Info, Filter } from 'lucide-react';
+import { ChatMessage, DocumentItem } from '../types';
 import { CitationCard } from './CitationCard';
 
 interface ChatViewProps {
@@ -8,13 +8,19 @@ interface ChatViewProps {
   onSendMessage: (text: string) => Promise<void>;
   isLoading: boolean;
   hasDocuments: boolean;
+  documents: DocumentItem[];
+  selectedScope: string[];
+  onScopeChange: (docIds: string[]) => void;
 }
 
 export const ChatView: React.FC<ChatViewProps> = ({
   messages,
   onSendMessage,
   isLoading,
-  hasDocuments
+  hasDocuments,
+  documents,
+  selectedScope,
+  onScopeChange
 }) => {
   const [input, setInput] = useState('');
   const messagesEndRef = useRef<HTMLDivElement>(null);
@@ -166,10 +172,85 @@ export const ChatView: React.FC<ChatViewProps> = ({
         <div ref={messagesEndRef} />
       </div>
 
+      {/* Retrieval Scope Control Bar */}
+      {hasDocuments && (
+        <div style={{
+          padding: '0.5rem 1rem',
+          borderTop: '1px solid var(--border-color)',
+          background: 'rgba(255, 255, 255, 0.02)',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'space-between',
+          fontSize: '0.8125rem'
+        }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', flex: 1, minWidth: 0 }}>
+            <Filter size={14} style={{ color: selectedScope.length > 0 ? 'var(--accent-primary)' : 'var(--text-muted)' }} />
+            <span style={{ color: 'var(--text-secondary)', fontWeight: 500, whiteSpace: 'nowrap' }}>Search Scope:</span>
+            
+            <select
+              value={selectedScope.length === 1 ? selectedScope[0] : (selectedScope.length === 0 ? 'all' : 'custom')}
+              onChange={(e) => {
+                const val = e.target.value;
+                if (val === 'all') onScopeChange([]);
+                else onScopeChange([val]);
+              }}
+              className="input-field"
+              style={{
+                padding: '4px 8px',
+                fontSize: '0.75rem',
+                borderRadius: '6px',
+                maxWidth: '360px',
+                cursor: 'pointer'
+              }}
+            >
+              <option value="all">All Documents ({documents.filter((d) => d.status === 'ready').length})</option>
+              {documents
+                .filter((d) => d.status === 'ready')
+                .map((d) => (
+                  <option key={d.id} value={d.id}>
+                    {d.title || d.file_name || d.id} ({d.source_type.toUpperCase()})
+                  </option>
+                ))}
+            </select>
+          </div>
+
+          {selectedScope.length > 0 && (
+            <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginLeft: '0.75rem' }}>
+              <span style={{
+                fontSize: '0.75rem',
+                padding: '2px 8px',
+                borderRadius: '4px',
+                background: 'rgba(99, 102, 241, 0.15)',
+                color: 'var(--accent-primary)',
+                fontWeight: 500,
+                whiteSpace: 'nowrap'
+              }}>
+                Scoped to 1 document
+              </span>
+              <button
+                type="button"
+                onClick={() => onScopeChange([])}
+                style={{
+                  background: 'transparent',
+                  border: 'none',
+                  color: 'var(--text-muted)',
+                  cursor: 'pointer',
+                  fontSize: '0.75rem',
+                  textDecoration: 'underline',
+                  whiteSpace: 'nowrap'
+                }}
+              >
+                Reset to All
+              </button>
+            </div>
+          )}
+        </div>
+      )}
+
       {/* Input Bar */}
       <form onSubmit={handleSubmit} style={{
         padding: '1rem',
-        borderTop: '1px solid var(--border-color)',
+        borderTop: hasDocuments ? 'none' : '1px solid var(--border-color)',
         display: 'flex',
         gap: '0.75rem'
       }}>
