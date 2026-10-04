@@ -1,4 +1,6 @@
 import time
+import json
+import uuid
 from typing import List, Tuple, Dict, Any, Optional
 
 from backend.app.schemas.rag import RAGQueryRequest, RAGQueryResponse, Citation
@@ -93,7 +95,8 @@ class RAGEngine:
 
     def query(self, request: RAGQueryRequest) -> RAGQueryResponse:
         t_start = time.perf_counter()
-        logger.info(f"Executing RAG query: '{request.question}' in workspace: {request.workspace_id}")
+        trace_id = getattr(request, "trace_id", None) or str(uuid.uuid4())
+        logger.info(f"Executing RAG query: '{request.question}' [trace_id={trace_id}] in workspace: {request.workspace_id}")
 
         # 1. Conversational Query Rewriting
         t0 = time.perf_counter()
@@ -107,11 +110,13 @@ class RAGEngine:
         t_rewrite_ms = (time.perf_counter() - t0) * 1000
 
         # 2. Build metadata filters
+        t_filter_start = time.perf_counter()
         filters: Dict[str, Any] = {"workspace_id": request.workspace_id}
         if request.document_ids:
             filters["document_ids"] = request.document_ids
         if request.source_types:
             filters["source_type"] = request.source_types[0] if len(request.source_types) == 1 else None
+        t_filter_ms = (time.perf_counter() - t_filter_start) * 1000
 
         # 3. Retrieval Execution (Hybrid or Dense)
         t1 = time.perf_counter()
@@ -126,53 +131,92 @@ class RAGEngine:
             "final_context_count": 0
         }
 
+        dense_retrieval_ms = 0.0
+        bm25_retrieval_ms = 0.0
+        rrf_fusion_ms = 0.0
         t_rerank_ms = 0.0
         retrieval_ms = 0.0
 
-        if hasattr(self.retriever, "retrieve_with_details"):
-            details = self.retriever.retrieve_with_details(
-                query=standalone_query,
-                top_k=request.top_k * 2,
-                filters=filters
-            )
-            raw_candidates = details["results"]
-            retrieval_metadata["retriever"] = "hybrid"
-            retrieval_metadata["candidate_count"] = len(details.get("fused_candidates", []))
-            retrieval_ms = details.get("retrieval_ms", 0.0) + details.get("fusion_ms", 0.0)
-            t_rerank_ms = details.get("rerank_ms", 0.0)
+        dense_count = 0
+        bm25_count = 0
+        fused_count = 0
+        reranked_count = 0
 
-            if request.debug or getattr(settings, "DEBUG", False):
-                debug_info["dense_candidates"] = [
-                    {"chunk_id": c.chunk_id, "source": c.metadata.source_name, "score": s}
-                    for c, s in details.get("dense_candidates", [])
-                ]
-                debug_info["bm25_candidates"] = [
-                    {"chunk_id": c.chunk_id, "source": c.metadata.source_name, "score": s}
-                    for c, s in details.get("bm25_candidates", [])
-                ]
-                debug_info["fused_candidates"] = [
-                    {"chunk_id": c.chunk_id, "source": c.metadata.source_name, "score": s}
-                    for c, s in details.get("fused_candidates", [])
-                ]
-                debug_info["reranked_candidates"] = [
-                    {"chunk_id": c.chunk_id, "source": c.metadata.source_name, "score": s}
-                    for c, s in details.get("reranked_candidates", [])
-                ]
-        else:
-            raw_candidates = self.retriever.retrieve(
-                query=standalone_query,
-                top_k=request.top_k * 2,
-                filters=filters
-            )
-            retrieval_ms = (time.perf_counter() - t1) * 1000
-            retrieval_metadata["candidate_count"] = len(raw_candidates)
+        try:
+            if hasattr(self.retriever, "retrieve_with_details"):
+                details = self.retriever.retrieve_with_details(
+                    query=standalone_query,
+                    top_k=request.top_k * 2,
+                    filters=filters
+                )
+                raw_candidates = details["results"]
+                retrieval_metadata["retriever"] = "hybrid"
+                retrieval_metadata["candidate_count"] = len(details.get("fused_candidates", []))
+                dense_retrieval_ms = details.get("dense_ms", 0.0)
+                bm25_retrieval_ms = details.get("bm25_ms", 0.0)
+                rrf_fusion_ms = details.get("fusion_ms", 0.0)
+                retrieval_ms = details.get("retrieval_ms", 0.0) + rrf_fusion_ms
+                t_rerank_ms = details.get("rerank_ms", 0.0)
+
+                dense_count = len(details.get("dense_candidates", []))
+                bm25_count = len(details.get("bm25_candidates", []))
+                fused_count = len(details.get("fused_candidates", []))
+                reranked_count = len(details.get("reranked_candidates", []))
+
+                if request.debug or getattr(settings, "DEBUG", False):
+                    debug_info["dense_candidates"] = [
+                        {"chunk_id": c.chunk_id, "source": c.metadata.source_name, "score": s}
+                        for c, s in details.get("dense_candidates", [])
+                    ]
+                    debug_info["bm25_candidates"] = [
+                        {"chunk_id": c.chunk_id, "source": c.metadata.source_name, "score": s}
+                        for c, s in details.get("bm25_candidates", [])
+                    ]
+                    debug_info["fused_candidates"] = [
+                        {"chunk_id": c.chunk_id, "source": c.metadata.source_name, "score": s}
+                        for c, s in details.get("fused_candidates", [])
+                    ]
+                    debug_info["reranked_candidates"] = [
+                        {"chunk_id": c.chunk_id, "source": c.metadata.source_name, "score": s}
+                        for c, s in details.get("reranked_candidates", [])
+                    ]
+            else:
+                raw_candidates = self.retriever.retrieve(
+                    query=standalone_query,
+                    top_k=request.top_k * 2,
+                    filters=filters
+                )
+                retrieval_ms = (time.perf_counter() - t1) * 1000
+                dense_retrieval_ms = retrieval_ms
+                retrieval_metadata["candidate_count"] = len(raw_candidates)
+                dense_count = len(raw_candidates)
+                fused_count = len(raw_candidates)
+                reranked_count = len(raw_candidates)
+        except Exception as e:
+            logger.error(json.dumps({
+                "event": "rag_request_failed",
+                "trace_id": trace_id,
+                "stage": "retrieval",
+                "error_type": type(e).__name__
+            }))
+            raise
 
         # 4. Context Selection & Deduplication
+        t_sel_start = time.perf_counter()
         selected_candidates = self.context_selector.select(
             candidates=raw_candidates,
             max_chunks=request.top_k
         )
+        t_sel_ms = (time.perf_counter() - t_sel_start) * 1000
         retrieval_metadata["final_context_count"] = len(selected_candidates)
+
+        # Score stats helper
+        scores = [round(float(s), 4) for _, s in selected_candidates]
+        score_stats = {
+            "min_score": min(scores) if scores else 0.0,
+            "max_score": max(scores) if scores else 0.0,
+            "avg_score": round(sum(scores) / len(scores), 4) if scores else 0.0
+        }
 
         # If no candidates meet the criteria -> Safe insufficient context response
         if not selected_candidates:
@@ -184,6 +228,41 @@ class RAGEngine:
                 "generation_ms": 0.0,
                 "total_ms": round(t_total_ms, 2)
             }
+            trace_data = {
+                "trace_id": trace_id,
+                "query_id": trace_id,
+                "query_rewriting_latency_ms": round(t_rewrite_ms, 2),
+                "metadata_filtering_latency_ms": round(t_filter_ms, 2),
+                "dense_retrieval_latency_ms": round(dense_retrieval_ms, 2),
+                "bm25_retrieval_latency_ms": round(bm25_retrieval_ms, 2),
+                "rrf_fusion_latency_ms": round(rrf_fusion_ms, 2),
+                "reranking_latency_ms": round(t_rerank_ms, 2),
+                "context_selection_latency_ms": round(t_sel_ms, 2),
+                "llm_latency_ms": 0.0,
+                "citation_validation_latency_ms": 0.0,
+                "total_latency_ms": round(t_total_ms, 2),
+                "retrieval_metrics": {
+                    "dense_candidate_count": dense_count,
+                    "bm25_candidate_count": bm25_count,
+                    "rrf_candidate_count": fused_count,
+                    "reranked_candidate_count": reranked_count,
+                    "final_context_count": 0,
+                    "selected_document_ids": request.document_ids or [],
+                    "score_statistics": score_stats
+                }
+            }
+
+            logger.info(json.dumps({
+                "event": "rag_request_completed",
+                "trace_id": trace_id,
+                "total_latency_ms": round(t_total_ms, 2),
+                "retrieved_chunks": 0,
+                "context_chunks": 0,
+                "citations": 0,
+                "model": getattr(self.llm, "model", None),
+                "has_sufficient_context": False
+            }))
+
             return RAGQueryResponse(
                 question=request.question,
                 standalone_query=standalone_query,
@@ -194,6 +273,9 @@ class RAGEngine:
                 latency_seconds=round(t_total_ms / 1000.0, 3),
                 retrieval=retrieval_metadata,
                 latency=latency_breakdown,
+                trace_id=trace_id,
+                trace=trace_data,
+                tokens=None,
                 debug=debug_info if (request.debug or getattr(settings, "DEBUG", False)) else None
             )
 
@@ -213,10 +295,23 @@ class RAGEngine:
 
         # 7. LLM Generation
         t2 = time.perf_counter()
+        token_usage_dict: Optional[Dict[str, Any]] = None
+        model_name: Optional[str] = getattr(self.llm, "model", None)
         try:
-            answer = self.llm.generate(prompt=prompt, system_prompt=SYSTEM_GROUNDED_RAG_PROMPT)
+            if hasattr(self.llm, "generate_with_metadata"):
+                answer, gen_meta = self.llm.generate_with_metadata(prompt=prompt, system_prompt=SYSTEM_GROUNDED_RAG_PROMPT)
+                if gen_meta:
+                    model_name = gen_meta.get("model", model_name)
+                    token_usage_dict = gen_meta.get("token_usage", None)
+            else:
+                answer = self.llm.generate(prompt=prompt, system_prompt=SYSTEM_GROUNDED_RAG_PROMPT)
         except Exception as e:
-            logger.error(f"LLM Generation failed: {e}")
+            logger.error(json.dumps({
+                "event": "rag_request_failed",
+                "trace_id": trace_id,
+                "stage": "llm_generation",
+                "error_type": type(e).__name__
+            }))
             t_total_ms = (time.perf_counter() - t_start) * 1000
             latency_breakdown = {
                 "rewrite_ms": round(t_rewrite_ms, 2),
@@ -235,13 +330,16 @@ class RAGEngine:
                 latency_seconds=round(t_total_ms / 1000.0, 3),
                 retrieval=retrieval_metadata,
                 latency=latency_breakdown,
+                trace_id=trace_id,
+                trace=None,
+                tokens=None,
                 debug=debug_info if (request.debug or getattr(settings, "DEBUG", False)) else None
             )
 
         t_gen_ms = (time.perf_counter() - t2) * 1000
-        t_total_ms = (time.perf_counter() - t_start) * 1000
 
         # 8. Insufficient Context Detection & Citation Validation
+        t_cite_start = time.perf_counter()
         insufficient_phrases = [
             "do not contain enough information",
             "does not contain enough information",
@@ -255,6 +353,9 @@ class RAGEngine:
             # Only keep citations that were actually referenced or derived from retrieved context
             valid_chunk_ids = {c.chunk_id for c, _ in selected_candidates}
             final_citations = [cit for cit in candidate_citations if cit.chunk_id in valid_chunk_ids]
+        t_cite_ms = (time.perf_counter() - t_cite_start) * 1000
+
+        t_total_ms = (time.perf_counter() - t_start) * 1000
 
         latency_breakdown = {
             "rewrite_ms": round(t_rewrite_ms, 2),
@@ -263,6 +364,61 @@ class RAGEngine:
             "generation_ms": round(t_gen_ms, 2),
             "total_ms": round(t_total_ms, 2)
         }
+
+        trace_data = {
+            "trace_id": trace_id,
+            "query_id": trace_id,
+            "query_rewriting_latency_ms": round(t_rewrite_ms, 2),
+            "metadata_filtering_latency_ms": round(t_filter_ms, 2),
+            "dense_retrieval_latency_ms": round(dense_retrieval_ms, 2),
+            "bm25_retrieval_latency_ms": round(bm25_retrieval_ms, 2),
+            "rrf_fusion_latency_ms": round(rrf_fusion_ms, 2),
+            "reranking_latency_ms": round(t_rerank_ms, 2),
+            "context_selection_latency_ms": round(t_sel_ms, 2),
+            "llm_latency_ms": round(t_gen_ms, 2),
+            "citation_validation_latency_ms": round(t_cite_ms, 2),
+            "total_latency_ms": round(t_total_ms, 2),
+            "retrieval_metrics": {
+                "dense_candidate_count": dense_count,
+                "bm25_candidate_count": bm25_count,
+                "rrf_candidate_count": fused_count,
+                "reranked_candidate_count": reranked_count,
+                "final_context_count": len(selected_candidates),
+                "selected_document_ids": list(set(c.metadata.document_id for c, _ in selected_candidates)),
+                "score_statistics": score_stats
+            }
+        }
+
+        # Token telemetry
+        tokens_telemetry: Optional[Dict[str, Any]] = None
+        if token_usage_dict:
+            tokens_telemetry = {
+                "model": model_name,
+                "input_tokens": token_usage_dict.get("prompt_tokens"),
+                "output_tokens": token_usage_dict.get("completion_tokens"),
+                "total_tokens": token_usage_dict.get("total_tokens"),
+                "generation_latency_ms": round(t_gen_ms, 2)
+            }
+        elif model_name:
+            tokens_telemetry = {
+                "model": model_name,
+                "input_tokens": None,
+                "output_tokens": None,
+                "total_tokens": None,
+                "generation_latency_ms": round(t_gen_ms, 2)
+            }
+
+        # Structured JSON Log (no sensitive info or raw text)
+        logger.info(json.dumps({
+            "event": "rag_request_completed",
+            "trace_id": trace_id,
+            "total_latency_ms": round(t_total_ms, 2),
+            "retrieved_chunks": len(selected_candidates),
+            "context_chunks": len(selected_candidates),
+            "citations": len(final_citations),
+            "model": model_name,
+            "has_sufficient_context": has_sufficient_context
+        }))
 
         return RAGQueryResponse(
             question=request.question,
@@ -274,5 +430,8 @@ class RAGEngine:
             latency_seconds=round(t_total_ms / 1000.0, 3),
             retrieval=retrieval_metadata,
             latency=latency_breakdown,
+            trace_id=trace_id,
+            trace=trace_data,
+            tokens=tokens_telemetry,
             debug=debug_info if (request.debug or getattr(settings, "DEBUG", False)) else None
         )

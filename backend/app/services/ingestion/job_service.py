@@ -8,12 +8,19 @@ from backend.app.core.logging import logger
 from backend.app.core.security import compute_file_hash, normalize_url
 from backend.app.db.session import SessionLocal
 from backend.app.schemas.document import SourceType, DocumentStatus
-from backend.app.schemas.ingestion_job import IngestionJobResponse, IngestionJobStatus, IngestionStage
+from backend.app.schemas.ingestion_job import (
+    IngestionJobResponse,
+    IngestionJobStatus,
+    IngestionStage,
+    IngestionEvent,
+    IngestionEventType
+)
 from backend.app.repositories.workspace_repo import WorkspaceRepository
 from backend.app.repositories.document_repo import DocumentRepository
 from backend.app.repositories.ingestion_job_repo import IngestionJobRepository
 from backend.app.services.ingestion.pipeline import IngestionPipeline
 from backend.app.services.ingestion.job_runner import IngestionJobRunner
+from backend.app.services.ingestion.event_bus import IngestionEventBus
 from backend.app.services.ingestion.youtube.service import YouTubeIngestionService
 
 class IngestionJobService:
@@ -26,11 +33,49 @@ class IngestionJobService:
         self,
         pipeline: IngestionPipeline,
         runner: Optional[IngestionJobRunner] = None,
-        session_factory: Optional[sessionmaker] = None
+        session_factory: Optional[sessionmaker] = None,
+        event_bus: Optional[IngestionEventBus] = None
     ):
         self.pipeline = pipeline
         self.session_factory = session_factory or SessionLocal
-        self.runner = runner or IngestionJobRunner(pipeline=pipeline, session_factory=self.session_factory)
+        self.event_bus = event_bus
+        self.runner = runner or IngestionJobRunner(
+            pipeline=pipeline,
+            session_factory=self.session_factory,
+            event_bus=event_bus
+        )
+
+    def _publish_event(
+        self,
+        job_id: str,
+        event_type: str,
+        status: str,
+        stage: Optional[str] = None,
+        progress: Optional[float] = None,
+        document_id: Optional[str] = None,
+        workspace_id: str = "default",
+        source_type: Optional[str] = None,
+        error: Optional[str] = None,
+        retry_count: int = 0
+    ) -> None:
+        if not self.event_bus:
+            return
+        try:
+            event = IngestionEvent(
+                event_type=event_type,
+                job_id=job_id,
+                document_id=document_id,
+                workspace_id=workspace_id,
+                status=status,
+                stage=stage,
+                progress=progress,
+                source_type=source_type,
+                error=error,
+                retry_count=retry_count
+            )
+            self.event_bus.publish(job_id, event)
+        except Exception as e:
+            logger.error(f"Failed to publish event for job {job_id}: {e}")
 
     def _job_to_response(self, job) -> IngestionJobResponse:
         return IngestionJobResponse(
@@ -127,6 +172,17 @@ class IngestionJobService:
             )
             db.commit()
             logger.info(f"job_created | job_id={job.id} document_id={doc_id} source_type={source_type.value}")
+            self._publish_event(
+                job_id=job.id,
+                event_type=IngestionEventType.JOB_CREATED.value,
+                status=job.status,
+                stage=job.stage,
+                progress=job.progress,
+                document_id=doc_id,
+                workspace_id=workspace_id,
+                source_type=source_type.value,
+                retry_count=job.retry_count
+            )
             return self._job_to_response(job), True
 
     def create_url_job(
@@ -208,6 +264,17 @@ class IngestionJobService:
             )
             db.commit()
             logger.info(f"job_created | job_id={job.id} document_id={doc_id} source_type={source_type}")
+            self._publish_event(
+                job_id=job.id,
+                event_type=IngestionEventType.JOB_CREATED.value,
+                status=job.status,
+                stage=job.stage,
+                progress=job.progress,
+                document_id=doc_id,
+                workspace_id=workspace_id,
+                source_type=source_type,
+                retry_count=job.retry_count
+            )
             return self._job_to_response(job), True
 
     def get_job_status(self, job_id: str, workspace_id: Optional[str] = None) -> Optional[IngestionJobResponse]:
@@ -255,4 +322,15 @@ class IngestionJobService:
             updated_job = IngestionJobRepository.reset_for_retry(db, job.id)
             db.commit()
             logger.info(f"job_retry_started | job_id={job.id} document_id={job.document_id} attempt={updated_job.retry_count}")
+            self._publish_event(
+                job_id=updated_job.id,
+                event_type=IngestionEventType.JOB_CREATED.value,
+                status=updated_job.status,
+                stage=updated_job.stage,
+                progress=updated_job.progress,
+                document_id=updated_job.document_id,
+                workspace_id=updated_job.workspace_id,
+                source_type=updated_job.source_type,
+                retry_count=updated_job.retry_count
+            )
             return self._job_to_response(updated_job), True

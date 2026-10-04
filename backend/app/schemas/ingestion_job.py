@@ -35,3 +35,29 @@ class IngestionJobResponse(BaseModel):
     completed_at: Optional[datetime] = None
 
     model_config = ConfigDict(from_attributes=True)
+
+class IngestionEventType(str, Enum):
+    CURRENT_STATE = "current_state"
+    JOB_CREATED = "job_created"
+    JOB_STARTED = "job_started"
+    JOB_STAGE_CHANGED = "job_stage_changed"
+    JOB_COMPLETED = "job_completed"
+    JOB_FAILED = "job_failed"
+
+class IngestionEvent(BaseModel):
+    event_type: str
+    job_id: str
+    document_id: Optional[str] = None
+    workspace_id: str = "default"
+    status: str
+    stage: Optional[str] = None
+    progress: Optional[float] = None
+    error: Optional[str] = None
+    source_type: Optional[str] = None
+    retry_count: int = 0
+    created_at: Optional[str] = None
+    started_at: Optional[str] = None
+    completed_at: Optional[str] = None
+
+    model_config = ConfigDict(from_attributes=True)
+

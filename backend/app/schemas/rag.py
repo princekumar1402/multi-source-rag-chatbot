@@ -34,6 +34,7 @@ class RAGQueryRequest(BaseModel):
     enable_reranking: bool = True
     document_ids: Optional[List[str]] = None
     source_types: Optional[List[SourceType]] = None
+    trace_id: Optional[str] = None
     debug: bool = False
 
 class RAGQueryResponse(BaseModel):
@@ -47,5 +48,8 @@ class RAGQueryResponse(BaseModel):
     conversation_id: Optional[str] = None
     retrieval: Optional[Dict[str, Any]] = None
     latency: Optional[Dict[str, float]] = None
-
+    trace_id: Optional[str] = None
+    trace: Optional[Dict[str, Any]] = None
+    tokens: Optional[Dict[str, Any]] = None
     debug: Optional[Dict[str, Any]] = None
+

@@ -1,0 +1,330 @@
+[
+  {
+    "id": "eval_001",
+    "question": "What are the four Coffman conditions necessary for a deadlock in operating systems?",
+    "document_ids": ["doc-pdf-eval-01"],
+    "relevant_chunk_ids": ["chunk-pdf-p24-1"],
+    "source_type": "pdf",
+    "category": "factual",
+    "expected_answer": "Mutual Exclusion, Hold and Wait, No Preemption, and Circular Wait.",
+    "expected_refusal": false
+  },
+  {
+    "id": "eval_002",
+    "question": "How does Round Robin CPU scheduling handle processes that exceed their time quantum?",
+    "document_ids": ["doc-pdf-eval-01"],
+    "relevant_chunk_ids": ["chunk-pdf-p23-1"],
+    "source_type": "pdf",
+    "category": "factual",
+    "expected_answer": "If a process does not complete within its time slice, it is preempted and placed at the tail of the ready queue.",
+    "expected_refusal": false
+  },
+  {
+    "id": "eval_003",
+    "question": "What happens during a page fault interrupt in virtual memory paging?",
+    "document_ids": ["doc-pdf-eval-01"],
+    "relevant_chunk_ids": ["chunk-pdf-p31-1"],
+    "source_type": "pdf",
+    "category": "factual",
+    "expected_answer": "The CPU hardware generates a page fault interrupt prompting the kernel to load the missing page from swap storage.",
+    "expected_refusal": false
+  },
+  {
+    "id": "eval_004",
+    "question": "What are the ACID properties guaranteed in DBMS transaction management?",
+    "document_ids": ["doc-docx-eval-02"],
+    "relevant_chunk_ids": ["chunk-docx-acid-1"],
+    "source_type": "docx",
+    "category": "factual",
+    "expected_answer": "Atomicity, Consistency, Isolation, and Durability.",
+    "expected_refusal": false
+  },
+  {
+    "id": "eval_005",
+    "question": "Why are leaf nodes linked together in a B+ Tree index?",
+    "document_ids": ["doc-docx-eval-02"],
+    "relevant_chunk_ids": ["chunk-docx-bplus-1"],
+    "source_type": "docx",
+    "category": "factual",
+    "expected_answer": "They are linked together in a sequential linked list for fast range scans.",
+    "expected_refusal": false
+  },
+  {
+    "id": "eval_006",
+    "question": "How does Multi-Version Concurrency Control (MVCC) prevent readers from blocking writers?",
+    "document_ids": ["doc-docx-eval-02"],
+    "relevant_chunk_ids": ["chunk-docx-mvcc-1"],
+    "source_type": "docx",
+    "category": "factual",
+    "expected_answer": "Readers view a consistent historical snapshot corresponding to their transaction start time, so readers never block writers and writers never block readers.",
+    "expected_refusal": false
+  },
+  {
+    "id": "eval_007",
+    "question": "How does the Apache Arrow columnar format in Polars improve vector execution compared to Pandas?",
+    "document_ids": ["doc-md-eval-03"],
+    "relevant_chunk_ids": ["chunk-md-polars-1"],
+    "source_type": "markdown",
+    "category": "factual",
+    "expected_answer": "Columnar layout enhances CPU cache locality and allows modern SIMD vectorization across CPU registers with contiguous memory buffers without Python object overhead.",
+    "expected_refusal": false
+  },
+  {
+    "id": "eval_008",
+    "question": "How does Apache Kafka order events within a topic partition?",
+    "document_ids": ["doc-md-eval-03"],
+    "relevant_chunk_ids": ["chunk-md-kafka-1"],
+    "source_type": "markdown",
+    "category": "factual",
+    "expected_answer": "A partition is an immutable append-only commit log ordered strictly by monotonically increasing offset IDs.",
+    "expected_refusal": false
+  },
+  {
+    "id": "eval_009",
+    "question": "In what batch size does DuckDB process tuples to optimize vectorized CPU pipelining?",
+    "document_ids": ["doc-md-eval-03"],
+    "relevant_chunk_ids": ["chunk-md-duckdb-1"],
+    "source_type": "markdown",
+    "category": "exact_entity",
+    "expected_answer": "DuckDB executes operations in vector batches of 2048 tuples.",
+    "expected_refusal": false
+  },
+  {
+    "id": "eval_010",
+    "question": "What is the three-way handshake sequence in TCP connection establishment?",
+    "document_ids": ["doc-txt-eval-04"],
+    "relevant_chunk_ids": ["chunk-txt-tcp-1"],
+    "source_type": "txt",
+    "category": "factual",
+    "expected_answer": "Step 1: Client sends SYN. Step 2: Server responds with SYN-ACK. Step 3: Client returns ACK.",
+    "expected_refusal": false
+  },
+  {
+    "id": "eval_011",
+    "question": "What is the sequence of servers queried during recursive DNS resolution?",
+    "document_ids": ["doc-txt-eval-04"],
+    "relevant_chunk_ids": ["chunk-txt-dns-1"],
+    "source_type": "txt",
+    "category": "factual",
+    "expected_answer": "Local DNS resolver queries root nameservers, then Top-Level Domain (TLD) servers, and finally authoritative nameservers.",
+    "expected_refusal": false
+  },
+  {
+    "id": "eval_012",
+    "question": "What cipher modes did TLS 1.3 remove, and what key exchange does it mandate for forward secrecy?",
+    "document_ids": ["doc-txt-eval-04"],
+    "relevant_chunk_ids": ["chunk-txt-tls-1"],
+    "source_type": "txt",
+    "category": "factual",
+    "expected_answer": "It removed RC4, DES, and CBC-mode ciphers, and mandates Ephemeral Diffie-Hellman.",
+    "expected_refusal": false
+  },
+  {
+    "id": "eval_013",
+    "question": "What is the compensation and location of Principal Architect Rahul Sharma (EMP-1092)?",
+    "document_ids": ["doc-csv-eval-05"],
+    "relevant_chunk_ids": ["chunk-csv-row12"],
+    "source_type": "csv",
+    "category": "structured_data",
+    "expected_answer": "Compensation is $185,000 and location is Seattle.",
+    "expected_refusal": false
+  },
+  {
+    "id": "eval_014",
+    "question": "Which department does Sarah Jenkins work in and what is her tenure?",
+    "document_ids": ["doc-csv-eval-05"],
+    "relevant_chunk_ids": ["chunk-csv-row13"],
+    "source_type": "csv",
+    "category": "structured_data",
+    "expected_answer": "Marketing department, tenure of 3 years.",
+    "expected_refusal": false
+  },
+  {
+    "id": "eval_015",
+    "question": "What role and compensation does Alice Chen have in the employee directory?",
+    "document_ids": ["doc-csv-eval-05"],
+    "relevant_chunk_ids": ["chunk-csv-row14"],
+    "source_type": "csv",
+    "category": "structured_data",
+    "expected_answer": "Senior Penetration Tester with $165,000 compensation.",
+    "expected_refusal": false
+  },
+  {
+    "id": "eval_016",
+    "question": "What is student Priya Patel's CGPA and who is her academic advisor?",
+    "document_ids": ["doc-xlsx-eval-06"],
+    "relevant_chunk_ids": ["chunk-xlsx-cs-row15"],
+    "source_type": "xlsx",
+    "category": "structured_data",
+    "expected_answer": "CGPA of 9.1 and advisor Dr. Alan Turing.",
+    "expected_refusal": false
+  },
+  {
+    "id": "eval_017",
+    "question": "What is David Kim's roll number and current semester in the computer science roster?",
+    "document_ids": ["doc-xlsx-eval-06"],
+    "relevant_chunk_ids": ["chunk-xlsx-cs-row16"],
+    "source_type": "xlsx",
+    "category": "structured_data",
+    "expected_answer": "Roll No: 1043, Semester: 6.",
+    "expected_refusal": false
+  },
+  {
+    "id": "eval_018",
+    "question": "What major and CGPA does Emma Watson have in the mathematics roster sheet?",
+    "document_ids": ["doc-xlsx-eval-06"],
+    "relevant_chunk_ids": ["chunk-xlsx-math-row8"],
+    "source_type": "xlsx",
+    "category": "structured_data",
+    "expected_answer": "Major in Applied Mathematics and CGPA of 9.6.",
+    "expected_refusal": false
+  },
+  {
+    "id": "eval_019",
+    "question": "How does HTTP/3 with QUIC eliminate TCP head-of-line blocking?",
+    "document_ids": ["doc-web-eval-07"],
+    "relevant_chunk_ids": ["chunk-web-http3-1"],
+    "source_type": "web",
+    "category": "factual",
+    "expected_answer": "In QUIC, independent multiplexed streams exist within UDP datagrams; packet loss in one stream only delays that specific stream without blocking unaffected streams.",
+    "expected_refusal": false
+  },
+  {
+    "id": "eval_020",
+    "question": "How does a WebSocket connection transition from HTTP to a persistent full-duplex socket?",
+    "document_ids": ["doc-web-eval-07"],
+    "relevant_chunk_ids": ["chunk-web-ws-1"],
+    "source_type": "web",
+    "category": "factual",
+    "expected_answer": "After an initial HTTP Upgrade handshake, client and server transmit lightweight binary or text frames asynchronously over a single TCP socket.",
+    "expected_refusal": false
+  },
+  {
+    "id": "eval_021",
+    "question": "How does the backpropagation algorithm compute gradients across neural network layers?",
+    "document_ids": ["doc-yt-eval-08"],
+    "relevant_chunk_ids": ["chunk-yt-backprop-1"],
+    "source_type": "youtube",
+    "category": "source_specific",
+    "expected_answer": "It applies the calculus chain rule for computing partial derivatives of the loss function, propagating gradients backwards layer by layer.",
+    "expected_refusal": false
+  },
+  {
+    "id": "eval_022",
+    "question": "Why is the scaling factor sqrt(d_k) used in Transformer self-attention?",
+    "document_ids": ["doc-yt-eval-08"],
+    "relevant_chunk_ids": ["chunk-yt-attention-1"],
+    "source_type": "youtube",
+    "category": "source_specific",
+    "expected_answer": "It prevents dot products from growing excessively large in high dimensions, avoiding small gradients during softmax.",
+    "expected_refusal": false
+  },
+  {
+    "id": "eval_023",
+    "question": "Under what condition does a follower in the Raft consensus algorithm become a candidate?",
+    "document_ids": ["doc-yt-eval-08"],
+    "relevant_chunk_ids": ["chunk-yt-raft-1"],
+    "source_type": "youtube",
+    "category": "source_specific",
+    "expected_answer": "If a follower detects election timeout without receiving heartbeats from the leader, it transitions to candidate state and requests votes.",
+    "expected_refusal": false
+  },
+  {
+    "id": "eval_024",
+    "question": "What is the three-way handshake sequence in TCP?",
+    "history": [
+      {"role": "user", "content": "Tell me about computer networking."},
+      {"role": "assistant", "content": "Networking covers transport layer protocols such as TCP and UDP."}
+    ],
+    "document_ids": ["doc-txt-eval-04"],
+    "relevant_chunk_ids": ["chunk-txt-tcp-1"],
+    "source_type": "txt",
+    "category": "conversational",
+    "expected_answer": "SYN, SYN-ACK, and ACK packets.",
+    "expected_refusal": false
+  },
+  {
+    "id": "eval_025",
+    "question": "What was the timestamp for the backpropagation explanation in the lecture?",
+    "history": [
+      {"role": "user", "content": "Did the lecture explain backpropagation?"},
+      {"role": "assistant", "content": "Yes, Lecture 4 covered backpropagation and optimization."}
+    ],
+    "document_ids": ["doc-yt-eval-08"],
+    "relevant_chunk_ids": ["chunk-yt-backprop-1"],
+    "source_type": "youtube",
+    "category": "conversational",
+    "expected_answer": "The timestamp is 12:00 - 13:05.",
+    "expected_refusal": false
+  },
+  {
+    "id": "eval_026",
+    "question": "What is the quantum error correction threshold for surface codes?",
+    "document_ids": null,
+    "relevant_chunk_ids": [],
+    "source_type": "txt",
+    "category": "insufficient_context",
+    "expected_answer": "The available knowledge base sources do not contain enough information to answer this question.",
+    "expected_refusal": true
+  },
+  {
+    "id": "eval_027",
+    "question": "What is the annual bonus percentage for Sarah Jenkins?",
+    "document_ids": ["doc-csv-eval-05"],
+    "relevant_chunk_ids": [],
+    "source_type": "csv",
+    "category": "insufficient_context",
+    "expected_answer": "The available knowledge base sources do not contain enough information to answer this question.",
+    "expected_refusal": true
+  },
+  {
+    "id": "eval_028",
+    "question": "What are the ingredients and baking instructions for beef lasagna?",
+    "document_ids": null,
+    "relevant_chunk_ids": [],
+    "source_type": "txt",
+    "category": "insufficient_context",
+    "expected_answer": "The available knowledge base sources do not contain enough information to answer this question.",
+    "expected_refusal": true
+  },
+  {
+    "id": "eval_029",
+    "question": "What are the four Coffman conditions for a deadlock?",
+    "document_ids": ["doc-docx-eval-02"],
+    "relevant_chunk_ids": [],
+    "source_type": "docx",
+    "category": "document_scoped_negative",
+    "expected_answer": "The available knowledge base sources do not contain enough information to answer this question.",
+    "expected_refusal": true
+  },
+  {
+    "id": "eval_030",
+    "question": "What is the compensation of Principal Architect Rahul Sharma?",
+    "document_ids": ["doc-pdf-eval-01"],
+    "relevant_chunk_ids": [],
+    "source_type": "pdf",
+    "category": "document_scoped_negative",
+    "expected_answer": "The available knowledge base sources do not contain enough information to answer this question.",
+    "expected_refusal": true
+  },
+  {
+    "id": "eval_031",
+    "question": "Compare how B+ Tree index structures store data pointers with how DuckDB processes tuples in vectorized execution.",
+    "document_ids": ["doc-docx-eval-02", "doc-md-eval-03"],
+    "relevant_chunk_ids": ["chunk-docx-bplus-1", "chunk-md-duckdb-1"],
+    "source_type": "multi_doc",
+    "category": "multi_hop",
+    "expected_answer": "B+ Trees store pointers in leaf nodes linked for range scans, whereas DuckDB executes operations in vector batches of 2048 tuples.",
+    "expected_refusal": false
+  },
+  {
+    "id": "eval_032",
+    "question": "What baking temperature is needed for a dark chocolate soufflé and how long should it bake?",
+    "document_ids": ["doc-distract-09"],
+    "relevant_chunk_ids": ["chunk-distract-recipe"],
+    "source_type": "txt",
+    "category": "factual",
+    "expected_answer": "Preheat oven to 375 degrees Fahrenheit and bake for 14 minutes.",
+    "expected_refusal": false
+  }
+]

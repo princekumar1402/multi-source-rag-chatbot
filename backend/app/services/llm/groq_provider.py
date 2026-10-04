@@ -1,5 +1,5 @@
 import os
-from typing import Optional, Iterator
+from typing import Optional, Iterator, Tuple, Dict, Any
 from langchain_groq import ChatGroq
 from langchain_core.messages import HumanMessage, SystemMessage
 
@@ -43,7 +43,29 @@ class GroqLLM(BaseLLM):
         messages.append(HumanMessage(content=prompt))
 
         response = self._llm.invoke(messages)
-        return response.content
+        return str(response.content)
+
+    def generate_with_metadata(
+        self,
+        prompt: str,
+        system_prompt: Optional[str] = None
+    ) -> Tuple[str, Dict[str, Any]]:
+        self._ensure_client()
+        messages = []
+        if system_prompt:
+            messages.append(SystemMessage(content=system_prompt))
+        messages.append(HumanMessage(content=prompt))
+
+        response = self._llm.invoke(messages)
+        meta = getattr(response, "response_metadata", {}) or {}
+        token_usage = meta.get("token_usage", {}) or {}
+        usage_info = {
+            "model": meta.get("model_name", self.model),
+            "input_tokens": token_usage.get("prompt_tokens"),
+            "output_tokens": token_usage.get("completion_tokens"),
+            "total_tokens": token_usage.get("total_tokens")
+        }
+        return str(response.content), usage_info
 
     def stream(self, prompt: str, system_prompt: Optional[str] = None) -> Iterator[str]:
         self._ensure_client()
@@ -55,3 +77,4 @@ class GroqLLM(BaseLLM):
         for chunk in self._llm.stream(messages):
             if chunk.content:
                 yield chunk.content
+

@@ -12,8 +12,8 @@ import {
   uploadFile,
   deleteDocument,
   queryRAG,
-  fetchJobStatus,
-  retryJob
+  retryJob,
+  subscribeToJobEvents
 } from './services/api';
 
 export const App: React.FC = () => {
@@ -23,10 +23,11 @@ export const App: React.FC = () => {
   const [isIngesting, setIsIngesting] = useState(false);
   const [isChatLoading, setIsChatLoading] = useState(false);
   const [selectedScope, setSelectedScope] = useState<string[]>([]);
-  const [activeJob, setActiveJob] = useState<IngestionJobItem | null>(null);
+  const [activeJobs, setActiveJobs] = useState<IngestionJobItem[]>([]);
   const [darkMode, setDarkMode] = useState(true);
 
-  const pollingIntervalRef = useRef<any>(null);
+  // Active SSE connection cleanup functions keyed by job_id
+  const eventSourcesRef = useRef<Map<string, () => void>>(new Map());
 
   useEffect(() => {
     loadHealth();
@@ -41,11 +42,17 @@ export const App: React.FC = () => {
     }
   }, [darkMode]);
 
+  // Clean up all active SSE streams on unmount to prevent orphaned connections
   useEffect(() => {
     return () => {
-      if (pollingIntervalRef.current) {
-        clearInterval(pollingIntervalRef.current);
-      }
+      eventSourcesRef.current.forEach((cleanup) => {
+        try {
+          cleanup();
+        } catch (e) {
+          console.warn('Error closing SSE stream on unmount', e);
+        }
+      });
+      eventSourcesRef.current.clear();
     };
   }, []);
 
@@ -67,43 +74,65 @@ export const App: React.FC = () => {
     }
   };
 
-  const startPolling = (jobId: string) => {
-    if (pollingIntervalRef.current) {
-      clearInterval(pollingIntervalRef.current);
+  /**
+   * Connects to the real-time Server-Sent Events stream for an ingestion job.
+   * Completely replaces legacy 1-second HTTP polling.
+   */
+  const connectSSE = (job: IngestionJobItem) => {
+    // If an existing subscription exists for this job, close it first
+    if (eventSourcesRef.current.has(job.job_id)) {
+      eventSourcesRef.current.get(job.job_id)!();
+      eventSourcesRef.current.delete(job.job_id);
     }
 
-    pollingIntervalRef.current = setInterval(async () => {
-      try {
-        const job = await fetchJobStatus(jobId);
-        setActiveJob(job);
-
-        if (job.status === 'completed') {
-          clearInterval(pollingIntervalRef.current);
-          pollingIntervalRef.current = null;
-          await loadDocuments();
-          await loadHealth();
-          // Auto-clear success message after 4 seconds
-          setTimeout(() => {
-            setActiveJob((current) => (current?.job_id === jobId ? null : current));
-          }, 4000);
-        } else if (job.status === 'failed') {
-          clearInterval(pollingIntervalRef.current);
-          pollingIntervalRef.current = null;
-          await loadDocuments();
-        }
-      } catch (err) {
-        console.error('Job status polling error', err);
+    // Add or update job in the activeJobs list
+    setActiveJobs((prev) => {
+      const idx = prev.findIndex((j) => j.job_id === job.job_id);
+      if (idx >= 0) {
+        const updated = [...prev];
+        updated[idx] = { ...updated[idx], ...job };
+        return updated;
       }
-    }, 1000);
+      return [job, ...prev];
+    });
+
+    const cleanup = subscribeToJobEvents(job.job_id, job.workspace_id || 'default', {
+      onUpdate: (updatedJob) => {
+        setActiveJobs((prev) =>
+          prev.map((j) => (j.job_id === updatedJob.job_id ? { ...j, ...updatedJob } : j))
+        );
+      },
+      onComplete: (completedJob) => {
+        setActiveJobs((prev) =>
+          prev.map((j) => (j.job_id === completedJob.job_id ? { ...j, ...completedJob } : j))
+        );
+        loadDocuments();
+        loadHealth();
+        eventSourcesRef.current.delete(completedJob.job_id);
+
+        // Auto-clear success message after 4 seconds
+        setTimeout(() => {
+          setActiveJobs((prev) => prev.filter((j) => j.job_id !== completedJob.job_id));
+        }, 4000);
+      },
+      onError: (failedJob) => {
+        setActiveJobs((prev) =>
+          prev.map((j) => (j.job_id === failedJob.job_id ? { ...j, ...failedJob } : j))
+        );
+        loadDocuments();
+        eventSourcesRef.current.delete(failedJob.job_id);
+      }
+    });
+
+    eventSourcesRef.current.set(job.job_id, cleanup);
   };
 
   const handleIngestUrl = async (url: string) => {
     setIsIngesting(true);
     try {
       const job = await ingestUrl(url);
-      setActiveJob(job);
+      connectSSE(job);
       await loadDocuments();
-      startPolling(job.job_id);
     } finally {
       setIsIngesting(false);
     }
@@ -113,9 +142,8 @@ export const App: React.FC = () => {
     setIsIngesting(true);
     try {
       const job = await uploadFile(file);
-      setActiveJob(job);
+      connectSSE(job);
       await loadDocuments();
-      startPolling(job.job_id);
     } finally {
       setIsIngesting(false);
     }
@@ -124,12 +152,19 @@ export const App: React.FC = () => {
   const handleRetryJob = async (jobId: string) => {
     try {
       const retried = await retryJob(jobId);
-      setActiveJob(retried);
+      connectSSE(retried);
       await loadDocuments();
-      startPolling(retried.job_id);
     } catch (err: any) {
       console.error('Failed to retry job', err);
     }
+  };
+
+  const handleDismissJob = (jobId: string) => {
+    if (eventSourcesRef.current.has(jobId)) {
+      eventSourcesRef.current.get(jobId)!();
+      eventSourcesRef.current.delete(jobId);
+    }
+    setActiveJobs((prev) => prev.filter((j) => j.job_id !== jobId));
   };
 
   const handleDelete = async (id: string) => {
@@ -197,12 +232,18 @@ export const App: React.FC = () => {
         <div style={{ width: '400px', display: 'flex', flexDirection: 'column' }}>
           <SourceInput onIngestUrl={handleIngestUrl} onUploadFile={handleUploadFile} isLoading={isIngesting} />
 
-          {activeJob && (
-            <ActiveJobCard
-              job={activeJob}
-              onRetry={handleRetryJob}
-              onDismiss={() => setActiveJob(null)}
-            />
+          {/* Real-Time Active Job Cards via SSE */}
+          {activeJobs.length > 0 && (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem', marginBottom: '0.5rem' }}>
+              {activeJobs.map((job) => (
+                <ActiveJobCard
+                  key={job.job_id}
+                  job={job}
+                  onRetry={handleRetryJob}
+                  onDismiss={() => handleDismissJob(job.job_id)}
+                />
+              ))}
+            </div>
           )}
 
           <div style={{ flex: 1, minHeight: 0 }}>

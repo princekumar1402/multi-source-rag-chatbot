@@ -72,3 +72,7 @@ class DenseRetrieverWithReranker(BaseRetriever):
 
         logger.info(f"Retrieved {len(final_chunks)} chunks above threshold {self.min_relevance_threshold}")
         return final_chunks
+
+# Canonical alias
+DenseRetriever = DenseRetrieverWithReranker
+

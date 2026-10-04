@@ -9,26 +9,74 @@ from backend.app.core.security import compute_content_hash
 from backend.app.db.session import SessionLocal
 from backend.app.models.document import Document
 from backend.app.schemas.document import SourceType
-from backend.app.schemas.ingestion_job import IngestionStage
+from backend.app.schemas.ingestion_job import IngestionStage, IngestionEvent, IngestionEventType
 from backend.app.repositories.document_repo import DocumentRepository
 from backend.app.repositories.chunk_repo import ChunkRepository
 from backend.app.repositories.ingestion_job_repo import IngestionJobRepository
 from backend.app.services.ingestion.pipeline import IngestionPipeline
+from backend.app.services.ingestion.event_bus import IngestionEventBus
+
+def sanitize_error_message(err: Optional[str]) -> Optional[str]:
+    """Sanitizes error messages to prevent exposing database credentials, tokens, or internal tracebacks."""
+    if not err:
+        return None
+    clean = str(err)
+    if "postgresql://" in clean or "password" in clean.lower():
+        return "An internal database error occurred during ingestion."
+    if "Traceback (most recent call last):" in clean:
+        clean = clean.splitlines()[-1]
+    return clean[:300]
 
 class IngestionJobRunner:
     """
     Independent background execution runner for IngestionJobs.
     Orchestrates the entire extraction, chunking, persistence, embedding,
-    and indexing lifecycle with transactional safety and rollback on failure.
+    and indexing lifecycle with transactional safety, rollback on failure,
+    and real-time event publishing via IngestionEventBus.
     """
 
     def __init__(
         self,
         pipeline: IngestionPipeline,
-        session_factory: Optional[sessionmaker] = None
+        session_factory: Optional[sessionmaker] = None,
+        event_bus: Optional[IngestionEventBus] = None
     ):
         self.pipeline = pipeline
         self.session_factory = session_factory or SessionLocal
+        self.event_bus = event_bus
+
+    def _publish_event(
+        self,
+        job_id: str,
+        event_type: str,
+        status: str,
+        stage: Optional[str] = None,
+        progress: Optional[float] = None,
+        document_id: Optional[str] = None,
+        workspace_id: str = "default",
+        source_type: Optional[str] = None,
+        error: Optional[str] = None,
+        retry_count: int = 0
+    ) -> None:
+        """Publishes an event to the IngestionEventBus if configured."""
+        if not self.event_bus:
+            return
+        try:
+            event = IngestionEvent(
+                event_type=event_type,
+                job_id=job_id,
+                document_id=document_id,
+                workspace_id=workspace_id,
+                status=status,
+                stage=stage,
+                progress=progress,
+                error=sanitize_error_message(error),
+                source_type=source_type,
+                retry_count=retry_count
+            )
+            self.event_bus.publish(job_id, event)
+        except Exception as e:
+            logger.error(f"Failed to publish event for job {job_id}: {e}")
 
     def run_job(self, job_id: str, file_bytes: Optional[bytes] = None) -> None:
         """
@@ -50,25 +98,57 @@ class IngestionJobRunner:
                     db, job.id, status="failed", error_message="Associated document not found"
                 )
                 db.commit()
+                self._publish_event(
+                    job_id=job.id,
+                    event_type=IngestionEventType.JOB_FAILED.value,
+                    status="failed",
+                    document_id=doc_id,
+                    workspace_id=job.workspace_id,
+                    source_type=job.source_type,
+                    error="Associated document not found",
+                    retry_count=job.retry_count
+                )
                 return
 
             # Concurrency Protection: check if another job is actively processing this document
             active_job = IngestionJobRepository.find_active_by_document(db, doc.id, exclude_job_id=job.id)
             if active_job and active_job.status == "processing":
                 logger.warning(f"job_concurrency_collision | job_id={job.id} doc_id={doc.id} active_job={active_job.id}")
+                err_msg = "Another job is actively processing this document"
                 IngestionJobRepository.update_status(
-                    db, job.id, status="failed", error_message="Another job is actively processing this document"
+                    db, job.id, status="failed", error_message=err_msg
                 )
                 db.commit()
+                self._publish_event(
+                    job_id=job.id,
+                    event_type=IngestionEventType.JOB_FAILED.value,
+                    status="failed",
+                    document_id=doc.id,
+                    workspace_id=job.workspace_id,
+                    source_type=job.source_type,
+                    error=err_msg,
+                    retry_count=job.retry_count
+                )
                 return
 
-            # Transition state to PROCESSING
+            # Transition state to PROCESSING & VALIDATING
             IngestionJobRepository.update_status(
                 db, job.id, status="processing", stage=IngestionStage.VALIDATING.value, progress=0.1
             )
             DocumentRepository.update_status(db, doc.id, status="processing")
             db.commit()
             logger.info(f"job_started | job_id={job.id} document_id={doc.id} source_type={job.source_type}")
+            self._publish_event(
+                job_id=job.id,
+                event_type=IngestionEventType.JOB_STARTED.value,
+                status="processing",
+                stage=IngestionStage.VALIDATING.value,
+                progress=0.1,
+                document_id=doc.id,
+                workspace_id=job.workspace_id,
+                source_type=job.source_type,
+                retry_count=job.retry_count
+            )
 
             try:
                 # -------------------------------------------------------------
@@ -79,6 +159,17 @@ class IngestionJobRunner:
                 )
                 db.commit()
                 logger.info(f"job_stage_changed | job_id={job.id} stage=EXTRACTING")
+                self._publish_event(
+                    job_id=job.id,
+                    event_type=IngestionEventType.JOB_STAGE_CHANGED.value,
+                    status="processing",
+                    stage=IngestionStage.EXTRACTING.value,
+                    progress=0.25,
+                    document_id=doc.id,
+                    workspace_id=job.workspace_id,
+                    source_type=job.source_type,
+                    retry_count=job.retry_count
+                )
 
                 if doc.source_type in (SourceType.WEB.value, SourceType.YOUTUBE.value):
                     if not doc.source_url:
@@ -119,6 +210,17 @@ class IngestionJobRunner:
                 )
                 db.commit()
                 logger.info(f"job_stage_changed | job_id={job.id} stage=CHUNKING")
+                self._publish_event(
+                    job_id=job.id,
+                    event_type=IngestionEventType.JOB_STAGE_CHANGED.value,
+                    status="processing",
+                    stage=IngestionStage.CHUNKING.value,
+                    progress=0.45,
+                    document_id=doc.id,
+                    workspace_id=job.workspace_id,
+                    source_type=job.source_type,
+                    retry_count=job.retry_count
+                )
 
                 chunks = self.pipeline.chunker.chunk_document(
                     doc=extracted,
@@ -136,6 +238,17 @@ class IngestionJobRunner:
                 )
                 db.commit()
                 logger.info(f"job_stage_changed | job_id={job.id} stage=PERSISTING")
+                self._publish_event(
+                    job_id=job.id,
+                    event_type=IngestionEventType.JOB_STAGE_CHANGED.value,
+                    status="processing",
+                    stage=IngestionStage.PERSISTING.value,
+                    progress=0.60,
+                    document_id=doc.id,
+                    workspace_id=job.workspace_id,
+                    source_type=job.source_type,
+                    retry_count=job.retry_count
+                )
 
                 # Remove any existing chunks in DB for this document (ensures idempotency on retry)
                 ChunkRepository.delete_by_document(db, doc.id)
@@ -175,6 +288,17 @@ class IngestionJobRunner:
                 )
                 db.commit()
                 logger.info(f"job_stage_changed | job_id={job.id} stage=EMBEDDING")
+                self._publish_event(
+                    job_id=job.id,
+                    event_type=IngestionEventType.JOB_STAGE_CHANGED.value,
+                    status="processing",
+                    stage=IngestionStage.EMBEDDING.value,
+                    progress=0.75,
+                    document_id=doc.id,
+                    workspace_id=job.workspace_id,
+                    source_type=job.source_type,
+                    retry_count=job.retry_count
+                )
 
                 chunk_texts = [c.content for c in chunks]
                 embeddings = self.pipeline.embedder.embed_documents(chunk_texts)
@@ -187,6 +311,17 @@ class IngestionJobRunner:
                 )
                 db.commit()
                 logger.info(f"job_stage_changed | job_id={job.id} stage=INDEXING")
+                self._publish_event(
+                    job_id=job.id,
+                    event_type=IngestionEventType.JOB_STAGE_CHANGED.value,
+                    status="processing",
+                    stage=IngestionStage.INDEXING.value,
+                    progress=0.90,
+                    document_id=doc.id,
+                    workspace_id=job.workspace_id,
+                    source_type=job.source_type,
+                    retry_count=job.retry_count
+                )
 
                 # Purge old vectors/tokens from memory & disk before adding (idempotent retry)
                 self.pipeline.vector_store.delete_document(doc.id)
@@ -205,6 +340,17 @@ class IngestionJobRunner:
                 )
                 db.commit()
                 logger.info(f"job_stage_changed | job_id={job.id} stage=FINALIZING")
+                self._publish_event(
+                    job_id=job.id,
+                    event_type=IngestionEventType.JOB_STAGE_CHANGED.value,
+                    status="processing",
+                    stage=IngestionStage.FINALIZING.value,
+                    progress=0.95,
+                    document_id=doc.id,
+                    workspace_id=job.workspace_id,
+                    source_type=job.source_type,
+                    retry_count=job.retry_count
+                )
 
                 # Verify consistency between DB chunks and expected chunk count
                 persisted_chunks = ChunkRepository.list_by_document(db, doc.id)
@@ -241,6 +387,17 @@ class IngestionJobRunner:
                 logger.info(
                     f"job_completed | job_id={job.id} document_id={doc.id} "
                     f"chunks={len(chunks)} duration={duration:.2f}s"
+                )
+                self._publish_event(
+                    job_id=job.id,
+                    event_type=IngestionEventType.JOB_COMPLETED.value,
+                    status="completed",
+                    stage=IngestionStage.COMPLETED.value,
+                    progress=1.0,
+                    document_id=doc.id,
+                    workspace_id=job.workspace_id,
+                    source_type=job.source_type,
+                    retry_count=job.retry_count
                 )
 
             except Exception as e:
@@ -283,3 +440,16 @@ class IngestionJobRunner:
                     error_message=err_msg
                 )
                 db.commit()
+
+                self._publish_event(
+                    job_id=job.id,
+                    event_type=IngestionEventType.JOB_FAILED.value,
+                    status="failed",
+                    stage=job.stage,
+                    progress=job.progress,
+                    document_id=doc.id,
+                    workspace_id=job.workspace_id,
+                    source_type=job.source_type,
+                    error=err_msg,
+                    retry_count=job.retry_count
+                )

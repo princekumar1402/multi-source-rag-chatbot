@@ -212,3 +212,7 @@ class BM25Retriever(BaseKeywordRetriever):
             results.append((self.chunks[chunk_id], round(normalized_score, 4)))
 
         return results
+
+# Canonical alias
+BM25KeywordRetriever = BM25Retriever
+

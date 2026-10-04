@@ -16,6 +16,7 @@ from backend.app.core.config import settings
 
 from backend.app.services.ingestion.job_runner import IngestionJobRunner
 from backend.app.services.ingestion.job_service import IngestionJobService
+from backend.app.services.ingestion.event_bus import IngestionEventBus
 
 # Global singletons for runtime efficiency
 _embedder: Optional[BaseEmbedder] = None
@@ -28,6 +29,13 @@ _pipeline: Optional[IngestionPipeline] = None
 _rag_engine: Optional[RAGEngine] = None
 _job_runner: Optional[IngestionJobRunner] = None
 _job_service: Optional[IngestionJobService] = None
+_event_bus: Optional[IngestionEventBus] = None
+
+def get_event_bus() -> IngestionEventBus:
+    global _event_bus
+    if _event_bus is None:
+        _event_bus = IngestionEventBus()
+    return _event_bus
 
 def get_embedder() -> BaseEmbedder:
     global _embedder
@@ -115,7 +123,10 @@ def get_ingestion_pipeline() -> IngestionPipeline:
 def get_ingestion_job_runner() -> IngestionJobRunner:
     global _job_runner
     if _job_runner is None:
-        _job_runner = IngestionJobRunner(pipeline=get_ingestion_pipeline())
+        _job_runner = IngestionJobRunner(
+            pipeline=get_ingestion_pipeline(),
+            event_bus=get_event_bus()
+        )
     return _job_runner
 
 def get_ingestion_job_service() -> IngestionJobService:
@@ -123,7 +134,8 @@ def get_ingestion_job_service() -> IngestionJobService:
     if _job_service is None:
         _job_service = IngestionJobService(
             pipeline=get_ingestion_pipeline(),
-            runner=get_ingestion_job_runner()
+            runner=get_ingestion_job_runner(),
+            event_bus=get_event_bus()
         )
     return _job_service
 

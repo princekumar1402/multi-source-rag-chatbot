@@ -85,6 +85,7 @@ class HybridRetriever(BaseRetriever):
         bm25_results: List[Tuple[DocumentChunk, float]] = []
 
         # 1. Dense retrieval with fallback
+        t_dense_start = time.perf_counter()
         try:
             dense_results = self.dense_retriever.retrieve(
                 query=query,
@@ -93,8 +94,10 @@ class HybridRetriever(BaseRetriever):
             )
         except Exception as e:
             logger.warning(f"Dense retrieval failed: {e}. Relying on BM25.")
+        t_dense_ms = (time.perf_counter() - t_dense_start) * 1000
 
         # 2. BM25 keyword retrieval with fallback
+        t_bm25_start = time.perf_counter()
         try:
             bm25_results = self.keyword_retriever.search(
                 query=query,
@@ -103,6 +106,7 @@ class HybridRetriever(BaseRetriever):
             )
         except Exception as e:
             logger.warning(f"BM25 retrieval failed: {e}. Relying on Dense.")
+        t_bm25_ms = (time.perf_counter() - t_bm25_start) * 1000
 
         t_retrieval = (time.perf_counter() - t0) * 1000
 
@@ -146,6 +150,8 @@ class HybridRetriever(BaseRetriever):
             "bm25_candidates": bm25_results,
             "fused_candidates": fused_candidates,
             "reranked_candidates": reranked_candidates,
+            "dense_ms": round(t_dense_ms, 2),
+            "bm25_ms": round(t_bm25_ms, 2),
             "retrieval_ms": round(t_retrieval, 2),
             "fusion_ms": round(t_fusion, 2),
             "rerank_ms": round(t_rerank, 2)
