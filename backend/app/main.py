@@ -47,15 +47,31 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+from fastapi import Depends
+from backend.app.api.v1.health import health_check, readiness_check
+
 # Register API v1 routes
 app.include_router(api_v1_router, prefix=settings.API_V1_STR)
+
+@app.get("/health", tags=["Health"])
+def root_health(vector_store = Depends(get_vector_store)):
+    return health_check(vector_store=vector_store)
+
+@app.get("/ready", tags=["Health"])
+def root_ready(
+    vector_store = Depends(get_vector_store),
+    embedder = Depends(get_embedder)
+):
+    return readiness_check(vector_store=vector_store, embedder=embedder)
 
 @app.get("/")
 def root():
     return {
         "project": settings.PROJECT_NAME,
         "docs": "/docs",
-        "api_v1": settings.API_V1_STR
+        "api_v1": settings.API_V1_STR,
+        "health": "/health",
+        "ready": "/ready"
     }
 
 if __name__ == "__main__":

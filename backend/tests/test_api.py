@@ -23,3 +23,15 @@ def test_documents_list_empty():
     assert response.status_code == 200
     data = response.json()
     assert isinstance(data, list)
+
+def test_root_health_and_ready_endpoints():
+    res_h = client.get("/health")
+    assert res_h.status_code == 200
+    assert res_h.json()["status"] == "healthy"
+
+    res_r = client.get("/ready")
+    assert res_r.status_code == 200
+    data = res_r.json()
+    assert data["status"] == "ready"
+    assert "database" in data
+    assert "vector_store" in data

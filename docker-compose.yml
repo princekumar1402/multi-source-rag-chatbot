@@ -8,7 +8,7 @@ services:
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-rag_password}
       POSTGRES_DB: ${POSTGRES_DB:-rag_db}
     ports:
-      - "${POSTGRES_PORT:-5434}:5432"
+      - "127.0.0.1:${POSTGRES_PORT:-5434}:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
     healthcheck:
@@ -16,6 +16,79 @@ services:
       interval: 5s
       timeout: 5s
       retries: 5
+    networks:
+      - rag_network
+
+  backend:
+    build:
+      context: .
+      dockerfile: backend/Dockerfile
+    container_name: rag_platform_backend
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      APP_ENV: production
+      DEBUG: "False"
+      DATABASE_URL: postgresql+psycopg2://${POSTGRES_USER:-rag_user}:${POSTGRES_PASSWORD:-rag_password}@postgres:5432/${POSTGRES_DB:-rag_db}
+      GROQ_API_KEY: ${GROQ_API_KEY:-}
+      GROQ_MODEL: ${GROQ_MODEL:-openai/gpt-oss-20b}
+      LLM_PROVIDER: ${LLM_PROVIDER:-groq}
+      EMBEDDING_PROVIDER: ${EMBEDDING_PROVIDER:-huggingface}
+      EMBEDDING_MODEL: ${EMBEDDING_MODEL:-sentence-transformers/all-MiniLM-L6-v2}
+      VECTOR_STORE_TYPE: faiss
+      VECTOR_STORE_PATH: /app/data/vector_store
+      CACHE_ENABLED: ${CACHE_ENABLED:-true}
+      CACHE_TTL_SECONDS: ${CACHE_TTL_SECONDS:-3600}
+      CACHE_MAX_SIZE: ${CACHE_MAX_SIZE:-1000}
+      DB_POOL_SIZE: ${DB_POOL_SIZE:-10}
+      DB_MAX_OVERFLOW: ${DB_MAX_OVERFLOW:-20}
+      RERANKER_ENABLED: ${RERANKER_ENABLED:-true}
+      RERANKER_TOP_K: ${RERANKER_TOP_K:-5}
+      QUERY_REWRITE_ENABLED: ${QUERY_REWRITE_ENABLED:-true}
+      CORS_ORIGINS: '["http://localhost","http://localhost:80","http://localhost:3000","http://localhost:5173","http://127.0.0.1"]'
+      LOG_LEVEL: ${LOG_LEVEL:-INFO}
+    volumes:
+      - rag_data:/app/data
+    ports:
+      - "8000:8000"
+    healthcheck:
+      test: ["CMD-SHELL", "curl -f http://localhost:8000/health || exit 1"]
+      interval: 10s
+      timeout: 5s
+      start_period: 25s
+      retries: 3
+    networks:
+      - rag_network
+
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    container_name: rag_platform_frontend
+    restart: unless-stopped
+    depends_on:
+      backend:
+        condition: service_healthy
+    ports:
+      - "80:80"
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://127.0.0.1/healthz || exit 1"]
+      interval: 10s
+      timeout: 5s
+      start_period: 10s
+      retries: 3
+    networks:
+      - rag_network
 
 volumes:
   postgres_data:
+    name: rag_platform_postgres_data
+  rag_data:
+    name: rag_platform_data
+
+networks:
+  rag_network:
+    name: rag_platform_network
+    driver: bridge

@@ -414,6 +414,9 @@ def test_sse_multiple_simultaneous_jobs():
     t1.start()
     t2.start()
 
+    start_wait = time.time()
+    while (bus.subscriber_count(id1) < 1 or bus.subscriber_count(id2) < 1) and (time.time() - start_wait < 5.0):
+        time.sleep(0.01)
     time.sleep(0.05)
     # Publish distinct stage to job 1 and job 2
     bus.publish(id1, IngestionEvent(
