@@ -22,6 +22,7 @@ from backend.app.schemas.document import DocumentResponse, DocumentStatus, Sourc
 from backend.app.core.security import compute_content_hash, compute_file_hash, normalize_url
 from backend.app.core.config import settings
 from backend.app.core.logging import logger
+from backend.app.core.cache import cache_manager
 
 from backend.app.db.session import SessionLocal
 from backend.app.models.document import Document
@@ -281,6 +282,7 @@ class IngestionPipeline:
                 )
                 IngestionJobRepository.update_status(db, job.id, status="completed")
                 db.commit()
+                cache_manager.increment_workspace_version(workspace_id)
                 logger.info(f"Successfully processed file '{file_name}': {len(chunks)} chunks indexed and persisted.")
                 return self._doc_to_response(updated_doc)
 
@@ -432,6 +434,7 @@ class IngestionPipeline:
                 )
                 IngestionJobRepository.update_status(db, job.id, status="completed")
                 db.commit()
+                cache_manager.increment_workspace_version(workspace_id)
                 logger.info(f"Successfully ingested '{doc_record.title}' with {len(chunks)} chunks.")
                 return self._doc_to_response(updated_doc)
 
@@ -489,4 +492,5 @@ class IngestionPipeline:
             ChunkRepository.delete_by_document(db, document_id)
             deleted = DocumentRepository.delete(db, document_id)
             db.commit()
+            cache_manager.increment_workspace_version(doc.workspace_id)
             return deleted

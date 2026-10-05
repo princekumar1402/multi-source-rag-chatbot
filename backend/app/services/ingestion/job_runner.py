@@ -15,6 +15,7 @@ from backend.app.repositories.chunk_repo import ChunkRepository
 from backend.app.repositories.ingestion_job_repo import IngestionJobRepository
 from backend.app.services.ingestion.pipeline import IngestionPipeline
 from backend.app.services.ingestion.event_bus import IngestionEventBus
+from backend.app.core.cache import cache_manager
 
 def sanitize_error_message(err: Optional[str]) -> Optional[str]:
     """Sanitizes error messages to prevent exposing database credentials, tokens, or internal tracebacks."""
@@ -382,6 +383,7 @@ class IngestionJobRunner:
                     progress=1.0
                 )
                 db.commit()
+                cache_manager.increment_workspace_version(doc.workspace_id)
 
                 duration = time.time() - start_time
                 logger.info(

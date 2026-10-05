@@ -9,6 +9,7 @@ from backend.app.repositories.workspace_repo import WorkspaceRepository
 from backend.app.repositories.document_repo import DocumentRepository
 from backend.app.repositories.conversation_repo import ConversationRepository
 from backend.app.repositories.message_repo import MessageRepository
+from backend.app.core.cache import cache_manager
 
 router = APIRouter()
 
@@ -29,8 +30,10 @@ def execute_rag_query(
         WorkspaceRepository.get_or_create(db, workspace_id=payload.workspace_id)
 
         # Validate document retrieval scope: strictly ensure documents belong to workspace AND status == 'ready'
-        ready_docs = DocumentRepository.list_by_workspace(db, workspace_id=payload.workspace_id, status="ready")
-        ready_doc_ids = {d.id for d in ready_docs}
+        ready_doc_ids = cache_manager.ready_docs_cache.get(payload.workspace_id)
+        if ready_doc_ids is None:
+            ready_doc_ids = set(DocumentRepository.list_ready_ids_by_workspace(db, workspace_id=payload.workspace_id))
+            cache_manager.ready_docs_cache.set(payload.workspace_id, ready_doc_ids, ttl_seconds=60)
 
         if payload.document_ids is not None:
             scoped_ids = [did for did in payload.document_ids if did in ready_doc_ids]

@@ -13,11 +13,19 @@ class ContextSelector:
         self,
         min_relevance_score: float = 0.15,
         max_context_chunks: int = 6,
-        overlap_threshold: float = 0.85
+        overlap_threshold: float = 0.85,
+        max_tokens: int = 2048
     ):
         self.min_relevance_score = min_relevance_score
         self.max_context_chunks = max_context_chunks
         self.overlap_threshold = overlap_threshold
+        self.max_tokens = max_tokens
+
+    @staticmethod
+    def compress_text(text: str) -> str:
+        """Normalizes multiple consecutive whitespaces and trailing blanks while preserving lines."""
+        lines = [line.strip() for line in text.splitlines() if line.strip()]
+        return "\n".join(lines)
 
     @staticmethod
     def _compute_overlap(text1: str, text2: str) -> float:
@@ -36,7 +44,8 @@ class ContextSelector:
         max_chunks: Optional[int] = None
     ) -> List[Tuple[DocumentChunk, float]]:
         """
-        Applies score threshold, exact content deduplication, and high-overlap suppression.
+        Applies score threshold, exact content deduplication, high-overlap suppression,
+        and token budget bounding.
         Returns final list of (DocumentChunk, score) tuples with 100% preserved metadata.
         """
         if not candidates:
@@ -45,6 +54,7 @@ class ContextSelector:
         limit = max_chunks or self.max_context_chunks
         selected: List[Tuple[DocumentChunk, float]] = []
         seen_contents: Set[str] = set()
+        accumulated_tokens = 0
 
         for chunk, score in candidates:
             # 1. Relevance threshold
@@ -52,7 +62,7 @@ class ContextSelector:
                 logger.debug(f"Chunk {chunk.chunk_id} dropped (score {score:.4f} < min {self.min_relevance_score})")
                 continue
 
-            cleaned_content = chunk.content.strip()
+            cleaned_content = self.compress_text(chunk.content)
             # 2. Exact duplicate suppression
             if cleaned_content in seen_contents:
                 logger.debug(f"Chunk {chunk.chunk_id} dropped as exact duplicate")
@@ -72,7 +82,14 @@ class ContextSelector:
             if is_redundant:
                 continue
 
+            # 4. Token budget check
+            chunk_tokens = len(cleaned_content.split())
+            if selected and (accumulated_tokens + chunk_tokens > self.max_tokens):
+                logger.info(f"Context budget reached ({accumulated_tokens} tokens). Halting context inclusion.")
+                break
+
             seen_contents.add(cleaned_content)
+            accumulated_tokens += chunk_tokens
             selected.append((chunk, score))
 
             if len(selected) >= limit:

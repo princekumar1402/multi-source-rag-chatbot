@@ -47,6 +47,7 @@ class IngestionJob(Base):
 
     __table_args__ = (
         Index("ix_ingestion_jobs_workspace_status", "workspace_id", "status"),
+        Index("ix_ingestion_jobs_doc_status", "document_id", "status"),
     )
 
     def __repr__(self) -> str:

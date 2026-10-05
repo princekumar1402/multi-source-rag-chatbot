@@ -65,31 +65,27 @@ class FAISSVectorStore(BaseVectorStore):
             fetch_k = min(self.index.ntotal, max(top_k * 4, 20))
         scores, indices = self.index.search(q_vec, fetch_k)
 
+        # Pre-process filters for high-speed inner loop evaluation
+        req_wid = filters.get("workspace_id") if filters else None
+        req_doc_ids = set(filters["document_ids"]) if (filters and "document_ids" in filters and filters["document_ids"] is not None) else None
+        req_doc_id = filters.get("document_id") if filters else None
+        req_st = filters.get("source_type") if filters else None
+
         results: List[Tuple[DocumentChunk, float]] = []
         for idx, score in zip(indices[0], scores[0]):
             if idx < 0 or idx >= len(self.chunks):
                 continue
             chunk = self.chunks[idx]
+            meta = chunk.metadata
 
-            # Apply metadata filters if provided
-            if filters:
-                match = True
-                for k, v in filters.items():
-                    if k == "workspace_id" and chunk.metadata.workspace_id != v:
-                        match = False
-                        break
-                    elif k == "document_ids" and v is not None:
-                        if chunk.metadata.document_id not in v:
-                            match = False
-                            break
-                    elif k == "document_id" and chunk.metadata.document_id != v:
-                        match = False
-                        break
-                    elif k == "source_type" and chunk.metadata.source_type != v:
-                        match = False
-                        break
-                if not match:
-                    continue
+            if req_wid and meta.workspace_id != req_wid:
+                continue
+            if req_doc_ids is not None and meta.document_id not in req_doc_ids:
+                continue
+            if req_doc_id and meta.document_id != req_doc_id:
+                continue
+            if req_st and meta.source_type != req_st:
+                continue
 
             results.append((chunk, float(score)))
             if len(results) >= top_k:

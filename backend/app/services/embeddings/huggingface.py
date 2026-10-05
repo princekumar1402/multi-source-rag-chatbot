@@ -4,6 +4,7 @@ from typing import List, Optional
 from backend.app.services.embeddings.base import BaseEmbedder
 from backend.app.core.config import settings
 from backend.app.core.logging import logger
+from backend.app.core.cache import cache_manager
 
 class HuggingFaceEmbedder(BaseEmbedder):
     """
@@ -65,27 +66,70 @@ class HuggingFaceEmbedder(BaseEmbedder):
             vec = vec / norm
         return vec.tolist()
 
+    def _get_cache_key(self, text: str) -> str:
+        text_hash = hashlib.sha256(text.encode("utf-8")).hexdigest()
+        return f"emb:{self.model_name}:{text_hash}"
+
     def embed_query(self, text: str) -> List[float]:
+        use_cache = getattr(settings, "EMBEDDING_CACHE_ENABLED", True)
+        if use_cache:
+            cache_key = self._get_cache_key(text)
+            cached = cache_manager.embedding_cache.get(cache_key)
+            if cached is not None:
+                return cached
+
         if self._use_fallback or not self._model:
-            return self._fallback_embed(text)
-        try:
-            embedding = self._model.encode(text, convert_to_numpy=True, normalize_embeddings=True)
-            return embedding.tolist()
-        except Exception as e:
-            logger.warning(f"Model encode failed ({e}), using offline embedding.")
-            return self._fallback_embed(text)
+            vec = self._fallback_embed(text)
+        else:
+            try:
+                embedding = self._model.encode(text, convert_to_numpy=True, normalize_embeddings=True)
+                vec = embedding.tolist()
+            except Exception as e:
+                logger.warning(f"Model encode failed ({e}), using offline embedding.")
+                vec = self._fallback_embed(text)
+
+        if use_cache:
+            cache_manager.embedding_cache.set(cache_key, vec)
+        return vec
 
     def embed_documents(self, texts: List[str]) -> List[List[float]]:
         if not texts:
             return []
-        if self._use_fallback or not self._model:
-            return [self._fallback_embed(t) for t in texts]
-        try:
-            embeddings = self._model.encode(texts, batch_size=32, convert_to_numpy=True, normalize_embeddings=True)
-            return embeddings.tolist()
-        except Exception as e:
-            logger.warning(f"Model batch encode failed ({e}), using offline embedding.")
-            return [self._fallback_embed(t) for t in texts]
+
+        use_cache = getattr(settings, "EMBEDDING_CACHE_ENABLED", True)
+        results: List[Optional[List[float]]] = [None] * len(texts)
+        missing_indices: List[int] = []
+        missing_texts: List[str] = []
+
+        if use_cache:
+            for i, text in enumerate(texts):
+                cached = cache_manager.embedding_cache.get(self._get_cache_key(text))
+                if cached is not None:
+                    results[i] = cached
+                else:
+                    missing_indices.append(i)
+                    missing_texts.append(text)
+        else:
+            missing_indices = list(range(len(texts)))
+            missing_texts = texts
+
+        if missing_texts:
+            if self._use_fallback or not self._model:
+                computed = [self._fallback_embed(t) for t in missing_texts]
+            else:
+                try:
+                    embeddings = self._model.encode(missing_texts, batch_size=32, convert_to_numpy=True, normalize_embeddings=True)
+                    computed = embeddings.tolist()
+                except Exception as e:
+                    logger.warning(f"Model batch encode failed ({e}), using offline embedding.")
+                    computed = [self._fallback_embed(t) for t in missing_texts]
+
+            for idx, text, vec in zip(missing_indices, missing_texts, computed):
+                results[idx] = vec
+                if use_cache:
+                    cache_manager.embedding_cache.set(self._get_cache_key(text), vec)
+
+        return [r for r in results if r is not None]
 
     @property
     def dimension(self) -> int:

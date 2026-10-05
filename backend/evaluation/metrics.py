@@ -162,8 +162,18 @@ def evaluate_groundedness(
             "supported_ratio": 1.0
         }
 
+    DISCOURSE_MARKERS = {
+        "based", "provided", "sources", "source", "according", "context", "information",
+        "stated", "states", "shows", "referenced", "explained", "mentions", "details",
+        "section", "document", "report", "question", "following"
+    }
+
     combined_context = " ".join(context_texts).lower()
-    answer_words = [w.strip(".,;:?!'\"()[]{}") for w in answer.lower().split() if len(w) > 3]
+    answer_words = [
+        w.strip(".,;:?!'\"()[]{}")
+        for w in answer.lower().split()
+        if len(w) > 3 and w.strip(".,;:?!'\"()[]{}") not in DISCOURSE_MARKERS
+    ]
 
     if not answer_words:
         return {

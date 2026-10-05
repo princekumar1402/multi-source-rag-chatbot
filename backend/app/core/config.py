@@ -71,6 +71,25 @@ class Settings(BaseSettings):
     MIN_RELEVANCE_SCORE: float = 0.15
     CONTEXT_OVERLAP_THRESHOLD: float = 0.85
 
+    # Phase 10 - Caching & Optimization Settings
+    CACHE_ENABLED: bool = True
+    CACHE_TTL_SECONDS: int = 3600
+    CACHE_MAX_SIZE: int = 1000
+    EMBEDDING_CACHE_ENABLED: bool = True
+    RETRIEVAL_CACHE_ENABLED: bool = True
+    ANSWER_CACHE_ENABLED: bool = True
+    QUERY_REWRITE_CACHE_ENABLED: bool = True
+    RERANKER_CACHE_ENABLED: bool = True
+
+    # Phase 10 - Database Connection Pooling Settings
+    DB_POOL_SIZE: int = 20
+    DB_MAX_OVERFLOW: int = 10
+    DB_POOL_TIMEOUT: int = 30
+    DB_POOL_RECYCLE: int = 1800
+
+    # Phase 10 - Performance Benchmarking
+    PERFORMANCE_BENCHMARK_ENABLED: bool = False
+
     model_config = SettingsConfigDict(
         env_file=(
             os.path.abspath(os.path.join(os.path.dirname(__file__), "../../../.env")),

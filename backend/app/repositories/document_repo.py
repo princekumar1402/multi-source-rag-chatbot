@@ -70,6 +70,15 @@ class DocumentRepository:
         return list(db.scalars(stmt).all())
 
     @staticmethod
+    def list_ready_ids_by_workspace(db: Session, workspace_id: str) -> List[str]:
+        """Optimized query returning only document IDs for 'ready' documents, bypassing heavy ORM hydration."""
+        stmt = select(Document.id).where(
+            Document.workspace_id == workspace_id,
+            Document.status == "ready"
+        )
+        return list(db.scalars(stmt).all())
+
+    @staticmethod
     def find_by_hash(db: Session, workspace_id: str, content_hash: str) -> Optional[Document]:
         stmt = select(Document).where(
             Document.workspace_id == workspace_id,

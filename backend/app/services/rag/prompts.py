@@ -9,6 +9,8 @@ CRITICAL INSTRUCTIONS:
 4. Never fabricate citations, page numbers, video timestamps, row numbers, sheet names, or URLs.
 5. If only one source was relevant, cite only that source. Do not cite irrelevant sources.
 6. Keep your tone objective, concise, and structured with clear paragraphs or bullet points where appropriate.
+7. Strictly distinguish stated facts from inferences. For multi-source or multi-hop questions, synthesize explicitly stated facts across the corresponding sources without extrapolating unsupported intermediate steps.
+8. Avoid preambles, meta-commentary, or repetitive source restatements.
 """
 
 USER_GROUNDED_RAG_TEMPLATE = """CONTEXT SOURCES:

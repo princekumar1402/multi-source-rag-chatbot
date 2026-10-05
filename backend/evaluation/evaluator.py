@@ -120,6 +120,7 @@ class RAGEvaluator:
         llm: Optional[BaseLLM] = None
     ):
         self.corpus = corpus or get_evaluation_corpus()
+        self.corpus_by_id = {c.chunk_id: c.content for c in self.corpus}
         self.dataset_path = dataset_path or os.path.join(
             os.path.dirname(__file__), "datasets", "rag_evaluation.json"
         )
@@ -303,7 +304,10 @@ class RAGEvaluator:
             citation_scores.append(cite_eval["accuracy"])
 
             # 3. Groundedness Evaluation
-            context_texts = [c.snippet for c in resp.citations]
+            context_texts = [
+                f"{c.source_title} {c.section_title or ''} {self.corpus_by_id.get(c.chunk_id, c.snippet)}"
+                for c in resp.citations
+            ]
             ground_eval = evaluate_groundedness(resp.answer, context_texts)
             groundedness_scores.append(ground_eval["score"])
 
