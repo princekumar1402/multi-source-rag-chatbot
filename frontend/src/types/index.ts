@@ -43,6 +43,16 @@ export interface ChatMessage {
   citations?: Citation[];
   latency_seconds?: number;
   has_sufficient_context?: boolean;
+  retrieval?: any;
+  latency?: {
+    rewrite_ms?: number;
+    retrieval_ms?: number;
+    reranking_ms?: number;
+    generation_ms?: number;
+    total_ms?: number;
+    [key: string]: number | undefined;
+  };
+  trace?: any;
 }
 
 export interface SystemHealth {
@@ -71,4 +81,13 @@ export interface IngestionJobItem {
   created_at: string;
   started_at?: string;
   completed_at?: string;
+}
+
+export interface ConversationItem {
+  id: string;
+  workspace_id: string;
+  title: string;
+  created_at: string;
+  updated_at: string;
+  messages?: any[];
 }

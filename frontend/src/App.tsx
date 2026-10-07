@@ -1,10 +1,22 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Header } from './components/Header';
-import { SourceInput } from './components/SourceInput';
-import { DocumentList } from './components/DocumentList';
-import { ChatView } from './components/ChatView';
-import { ActiveJobCard } from './components/ActiveJobCard';
-import { DocumentItem, ChatMessage, SystemHealth, IngestionJobItem } from './types';
+import { Sidebar, ActiveNavTab } from './components/Sidebar';
+import { ChatHeader } from './components/ChatHeader';
+import { ChatWorkspace } from './components/ChatWorkspace';
+import { KnowledgeIntelligencePanel } from './components/KnowledgeIntelligencePanel';
+import { DocumentsView } from './components/DocumentsView';
+import { IngestionView } from './components/IngestionView';
+import { SourcesView } from './components/SourcesView';
+import { UploadModal } from './components/UploadModal';
+import { CommandMenuModal } from './components/CommandMenuModal';
+import { SettingsModal } from './components/SettingsModal';
+import {
+  DocumentItem,
+  ChatMessage,
+  SystemHealth,
+  IngestionJobItem,
+  Citation,
+  ConversationItem
+} from './types';
 import {
   fetchHealth,
   fetchDocuments,
@@ -13,32 +25,56 @@ import {
   deleteDocument,
   queryRAG,
   retryJob,
-  subscribeToJobEvents
+  subscribeToJobEvents,
+  fetchConversations,
+  createConversation,
+  fetchConversationMessages
 } from './services/api';
 
 export const App: React.FC = () => {
+  // Navigation & Modals
+  const [activeTab, setActiveTab] = useState<ActiveNavTab>('chat');
+  const [uploadModalOpen, setUploadModalOpen] = useState(false);
+  const [commandMenuOpen, setCommandMenuOpen] = useState(false);
+  const [settingsModalOpen, setSettingsModalOpen] = useState(false);
+  const [darkMode, setDarkMode] = useState(false); // Primary is light mode
+  const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
+  const [showIntelligencePanel, setShowIntelligencePanel] = useState(true);
+
+  // Data & State
   const [health, setHealth] = useState<SystemHealth | null>(null);
   const [documents, setDocuments] = useState<DocumentItem[]>([]);
+  const [conversations, setConversations] = useState<ConversationItem[]>([]);
+  const [activeConversationId, setActiveConversationId] = useState<string | null>(null);
   const [messages, setMessages] = useState<ChatMessage[]>([]);
-  const [isIngesting, setIsIngesting] = useState(false);
-  const [isChatLoading, setIsChatLoading] = useState(false);
+  const [activeCitation, setActiveCitation] = useState<Citation | null>(null);
   const [selectedScope, setSelectedScope] = useState<string[]>([]);
   const [activeJobs, setActiveJobs] = useState<IngestionJobItem[]>([]);
-  const [darkMode, setDarkMode] = useState(true);
+
+  // Loading States
+  const [isChatLoading, setIsChatLoading] = useState(false);
+  const [isIngesting, setIsIngesting] = useState(false);
+
+  // Latest Retrieval Telemetry
+  const [latestRetrieval, setLatestRetrieval] = useState<any>(null);
+  const [latestLatency, setLatestLatency] = useState<any>(null);
 
   // Active SSE connection cleanup functions keyed by job_id
   const eventSourcesRef = useRef<Map<string, () => void>>(new Map());
 
+  // Initial Data Load
   useEffect(() => {
     loadHealth();
     loadDocuments();
+    loadConversations();
   }, []);
 
+  // Theme Sync
   useEffect(() => {
     if (darkMode) {
-      document.body.classList.remove('light-theme');
+      document.body.classList.add('dark-theme');
     } else {
-      document.body.classList.add('light-theme');
+      document.body.classList.remove('dark-theme');
     }
   }, [darkMode]);
 
@@ -74,18 +110,79 @@ export const App: React.FC = () => {
     }
   };
 
+  const loadConversations = async () => {
+    try {
+      const convList = await fetchConversations();
+      setConversations(convList);
+      if (convList.length > 0 && !activeConversationId) {
+        const firstConv = convList[0];
+        setActiveConversationId(firstConv.id);
+        loadConversationMessages(firstConv.id);
+      }
+    } catch (e) {
+      console.error('Failed to load conversations', e);
+    }
+  };
+
+  const loadConversationMessages = async (convId: string) => {
+    try {
+      const dbMsgs = await fetchConversationMessages(convId);
+      const parsedMsgs: ChatMessage[] = dbMsgs.map((m: any) => ({
+        id: m.id,
+        role: m.role,
+        content: m.content,
+        citations: m.msg_metadata?.citations || [],
+        latency_seconds: m.msg_metadata?.latency?.total_ms ? m.msg_metadata.latency.total_ms / 1000 : undefined,
+        has_sufficient_context: m.msg_metadata?.has_sufficient_context ?? true,
+        retrieval: m.msg_metadata?.retrieval,
+        latency: m.msg_metadata?.latency
+      }));
+      setMessages(parsedMsgs);
+
+      // Set latest citations in right panel from last assistant turn
+      const lastAssistant = [...parsedMsgs].reverse().find((m) => m.role === 'assistant');
+      if (lastAssistant) {
+        setLatestRetrieval(lastAssistant.retrieval);
+        setLatestLatency(lastAssistant.latency);
+      }
+    } catch (e) {
+      console.error('Failed to load conversation messages', e);
+    }
+  };
+
+  const handleSelectConversation = (id: string) => {
+    setActiveConversationId(id);
+    setActiveCitation(null);
+    loadConversationMessages(id);
+  };
+
+  const handleNewChat = async () => {
+    try {
+      const newConv = await createConversation('New Chat');
+      setConversations((prev) => [newConv, ...prev]);
+      setActiveConversationId(newConv.id);
+      setMessages([]);
+      setActiveCitation(null);
+      setLatestRetrieval(null);
+      setLatestLatency(null);
+    } catch (e) {
+      setActiveConversationId(null);
+      setMessages([]);
+      setActiveCitation(null);
+      setLatestRetrieval(null);
+      setLatestLatency(null);
+    }
+  };
+
   /**
    * Connects to the real-time Server-Sent Events stream for an ingestion job.
-   * Completely replaces legacy 1-second HTTP polling.
    */
   const connectSSE = (job: IngestionJobItem) => {
-    // If an existing subscription exists for this job, close it first
     if (eventSourcesRef.current.has(job.job_id)) {
       eventSourcesRef.current.get(job.job_id)!();
       eventSourcesRef.current.delete(job.job_id);
     }
 
-    // Add or update job in the activeJobs list
     setActiveJobs((prev) => {
       const idx = prev.findIndex((j) => j.job_id === job.job_id);
       if (idx >= 0) {
@@ -109,11 +206,6 @@ export const App: React.FC = () => {
         loadDocuments();
         loadHealth();
         eventSourcesRef.current.delete(completedJob.job_id);
-
-        // Auto-clear success message after 4 seconds
-        setTimeout(() => {
-          setActiveJobs((prev) => prev.filter((j) => j.job_id !== completedJob.job_id));
-        }, 4000);
       },
       onError: (failedJob) => {
         setActiveJobs((prev) =>
@@ -127,10 +219,10 @@ export const App: React.FC = () => {
     eventSourcesRef.current.set(job.job_id, cleanup);
   };
 
-  const handleIngestUrl = async (url: string) => {
+  const handleUploadFile = async (file: File, title?: string) => {
     setIsIngesting(true);
     try {
-      const job = await ingestUrl(url);
+      const job = await uploadFile(file, 'default', title);
       connectSSE(job);
       await loadDocuments();
     } finally {
@@ -138,10 +230,10 @@ export const App: React.FC = () => {
     }
   };
 
-  const handleUploadFile = async (file: File) => {
+  const handleIngestUrl = async (url: string, title?: string) => {
     setIsIngesting(true);
     try {
-      const job = await uploadFile(file);
+      const job = await ingestUrl(url, 'default', title);
       connectSSE(job);
       await loadDocuments();
     } finally {
@@ -159,15 +251,7 @@ export const App: React.FC = () => {
     }
   };
 
-  const handleDismissJob = (jobId: string) => {
-    if (eventSourcesRef.current.has(jobId)) {
-      eventSourcesRef.current.get(jobId)!();
-      eventSourcesRef.current.delete(jobId);
-    }
-    setActiveJobs((prev) => prev.filter((j) => j.job_id !== jobId));
-  };
-
-  const handleDelete = async (id: string) => {
+  const handleDeleteDocument = async (id: string) => {
     try {
       await deleteDocument(id);
       setSelectedScope((prev) => prev.filter((dId) => dId !== id));
@@ -194,7 +278,13 @@ export const App: React.FC = () => {
         content: m.content
       }));
 
-      const response = await queryRAG(text, historyPayload, 'default', selectedScope);
+      const response = await queryRAG(
+        text,
+        historyPayload,
+        'default',
+        selectedScope,
+        activeConversationId || undefined
+      );
 
       const assistantMessage: ChatMessage = {
         id: (Date.now() + 1).toString(),
@@ -202,15 +292,25 @@ export const App: React.FC = () => {
         content: response.answer,
         citations: response.citations,
         latency_seconds: response.latency_seconds,
-        has_sufficient_context: response.has_sufficient_context
+        has_sufficient_context: response.has_sufficient_context,
+        retrieval: response.retrieval,
+        latency: response.latency
       };
 
       setMessages((prev) => [...prev, assistantMessage]);
+      setLatestRetrieval(response.retrieval);
+      setLatestLatency(response.latency);
+
+      // If a new conversation_id was returned, refresh conversations list
+      if (response.conversation_id && response.conversation_id !== activeConversationId) {
+        setActiveConversationId(response.conversation_id);
+        loadConversations();
+      }
     } catch (err: any) {
       const errorMessage: ChatMessage = {
         id: (Date.now() + 1).toString(),
         role: 'assistant',
-        content: `Error: ${err.message || 'Failed to generate response.'}`
+        content: `Execution Notice: ${err.message || 'Failed to complete query synthesis.'}`
       };
       setMessages((prev) => [...prev, errorMessage]);
     } finally {
@@ -218,56 +318,154 @@ export const App: React.FC = () => {
     }
   };
 
+  // Derive active conversation title
+  const activeConversation = conversations.find((c) => c.id === activeConversationId);
+  const activeTitle = activeConversation ? activeConversation.title : (messages.length > 0 ? messages[0].content.slice(0, 50) : 'Knowledge Workspace');
+
+  // Derive citations to show in Knowledge Intelligence panel (from last assistant message)
+  const currentCitations = (() => {
+    const lastAssistant = [...messages].reverse().find((m) => m.role === 'assistant');
+    return lastAssistant?.citations || [];
+  })();
+
   return (
-    <div style={{ minHeight: '100vh', display: 'flex', flexDirection: 'column' }}>
-      <Header
+    <div style={{ display: 'flex', width: '100vw', height: '100vh', overflow: 'hidden', position: 'relative' }}>
+      {/* Mobile Backdrop */}
+      {mobileMenuOpen && (
+        <div
+          className="backdrop-mobile"
+          onClick={() => setMobileMenuOpen(false)}
+        />
+      )}
+
+      {/* 1. Left Navigation Sidebar */}
+      <Sidebar
+        activeTab={activeTab}
+        onSelectTab={setActiveTab}
+        onNewChat={handleNewChat}
+        conversations={conversations}
+        activeConversationId={activeConversationId}
+        onSelectConversation={handleSelectConversation}
+        onOpenCommandMenu={() => setCommandMenuOpen(true)}
+        onOpenSettings={() => setSettingsModalOpen(true)}
+        isOpenMobile={mobileMenuOpen}
+        onCloseMobile={() => setMobileMenuOpen(false)}
+      />
+
+      {/* 2. Main Center & Right Area */}
+      <div style={{ flex: 1, display: 'flex', flexDirection: 'column', height: '100%', minWidth: 0, overflow: 'hidden' }}>
+        {/* Chat / View Header */}
+        <ChatHeader
+          title={activeTitle}
+          documents={documents}
+          selectedDocumentIds={selectedScope}
+          onSelectDocumentScope={setSelectedScope}
+          onOpenSearch={() => setCommandMenuOpen(true)}
+          onToggleTheme={() => setDarkMode(!darkMode)}
+          darkMode={darkMode}
+          onOpenMobileMenu={() => setMobileMenuOpen(true)}
+          onClearChat={() => setMessages([])}
+          showIntelligencePanel={showIntelligencePanel}
+          onToggleIntelligencePanel={() => setShowIntelligencePanel(!showIntelligencePanel)}
+        />
+
+        {/* View Content Body */}
+        <div style={{ flex: 1, display: 'flex', minHeight: 0, overflow: 'hidden' }}>
+          {activeTab === 'chat' && (
+            <>
+              {/* Central Chat Workspace */}
+              <ChatWorkspace
+                messages={messages}
+                onSendMessage={handleSendMessage}
+                isLoading={isChatLoading}
+                selectedScopeIds={selectedScope}
+                documents={documents}
+                onOpenUpload={() => setUploadModalOpen(true)}
+                onSelectCitation={(cit) => {
+                  setActiveCitation(cit);
+                  setShowIntelligencePanel(true);
+                }}
+              />
+
+              {/* Right Knowledge Intelligence Panel */}
+              {showIntelligencePanel && (
+                <KnowledgeIntelligencePanel
+                  citations={currentCitations}
+                  retrievalMetadata={latestRetrieval}
+                  latencyData={latestLatency}
+                  activeCitation={activeCitation}
+                  onSelectCitation={setActiveCitation}
+                  onCloseMobile={() => setShowIntelligencePanel(false)}
+                />
+              )}
+            </>
+          )}
+
+          {activeTab === 'documents' && (
+            <DocumentsView
+              documents={documents}
+              onDeleteDocument={handleDeleteDocument}
+              onOpenUploadModal={() => setUploadModalOpen(true)}
+              onQueryDocumentInChat={(docId) => {
+                setSelectedScope([docId]);
+                setActiveTab('chat');
+              }}
+            />
+          )}
+
+          {activeTab === 'ingestion' && (
+            <IngestionView
+              activeJobs={activeJobs}
+              onRetryJob={handleRetryJob}
+              onOpenUploadModal={() => setUploadModalOpen(true)}
+            />
+          )}
+
+          {activeTab === 'sources' && (
+            <SourcesView
+              documents={documents}
+              onOpenUploadModal={() => setUploadModalOpen(true)}
+              onFilterByCategory={(type) => {
+                setActiveTab('documents');
+              }}
+            />
+          )}
+        </div>
+      </div>
+
+      {/* Upload Modal */}
+      <UploadModal
+        isOpen={uploadModalOpen}
+        onClose={() => setUploadModalOpen(false)}
+        onUploadFile={handleUploadFile}
+        onIngestUrl={handleIngestUrl}
+        isLoading={isIngesting}
+      />
+
+      {/* Command Menu Modal */}
+      <CommandMenuModal
+        isOpen={commandMenuOpen}
+        onClose={() => setCommandMenuOpen(false)}
+        onNewChat={handleNewChat}
+        onNavigate={setActiveTab}
+        onOpenUpload={() => setUploadModalOpen(true)}
+        onToggleTheme={() => setDarkMode(!darkMode)}
+        darkMode={darkMode}
+        documents={documents}
+        onSelectDocument={(docId) => {
+          setSelectedScope([docId]);
+          setActiveTab('chat');
+        }}
+      />
+
+      {/* Settings Modal */}
+      <SettingsModal
+        isOpen={settingsModalOpen}
+        onClose={() => setSettingsModalOpen(false)}
         health={health}
         darkMode={darkMode}
         onToggleTheme={() => setDarkMode(!darkMode)}
-        documentCount={documents.length}
       />
-
-      <main style={{ flex: 1, padding: '0 1rem 1rem 1rem', display: 'flex', gap: '1.25rem', height: 'calc(100vh - 90px)' }}>
-        {/* Left Column: Ingestion & Knowledge Sources */}
-        <div style={{ width: '400px', display: 'flex', flexDirection: 'column' }}>
-          <SourceInput onIngestUrl={handleIngestUrl} onUploadFile={handleUploadFile} isLoading={isIngesting} />
-
-          {/* Real-Time Active Job Cards via SSE */}
-          {activeJobs.length > 0 && (
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem', marginBottom: '0.5rem' }}>
-              {activeJobs.map((job) => (
-                <ActiveJobCard
-                  key={job.job_id}
-                  job={job}
-                  onRetry={handleRetryJob}
-                  onDismiss={() => handleDismissJob(job.job_id)}
-                />
-              ))}
-            </div>
-          )}
-
-          <div style={{ flex: 1, minHeight: 0 }}>
-            <DocumentList
-              documents={documents}
-              onDelete={handleDelete}
-              isLoading={isIngesting}
-            />
-          </div>
-        </div>
-
-        {/* Right Column: Grounded Chat Workspace */}
-        <div style={{ flex: 1, minHeight: 0 }}>
-          <ChatView
-            messages={messages}
-            onSendMessage={handleSendMessage}
-            isLoading={isChatLoading}
-            hasDocuments={documents.length > 0}
-            documents={documents}
-            selectedScope={selectedScope}
-            onScopeChange={setSelectedScope}
-          />
-        </div>
-      </main>
     </div>
   );
 };

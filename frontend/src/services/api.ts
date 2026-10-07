@@ -1,4 +1,4 @@
-import { DocumentItem, Citation, SystemHealth, IngestionJobItem } from '../types';
+import { DocumentItem, Citation, SystemHealth, IngestionJobItem, ConversationItem } from '../types';
 
 const API_BASE = '/api/v1';
 
@@ -155,13 +155,26 @@ export interface QueryResponse {
   has_sufficient_context: boolean;
   retrieved_count: number;
   latency_seconds: number;
+  conversation_id?: string;
+  retrieval?: any;
+  latency?: {
+    rewrite_ms?: number;
+    retrieval_ms?: number;
+    reranking_ms?: number;
+    generation_ms?: number;
+    total_ms?: number;
+    [key: string]: number | undefined;
+  };
+  trace?: any;
+  debug?: any;
 }
 
 export async function queryRAG(
   question: string,
   history: { role: string; content: string }[] = [],
   workspaceId = 'default',
-  documentIds?: string[]
+  documentIds?: string[],
+  conversationId?: string
 ): Promise<QueryResponse> {
   const payload: any = {
     question,
@@ -171,6 +184,9 @@ export async function queryRAG(
     enable_query_rewriting: true,
     enable_reranking: true
   };
+  if (conversationId) {
+    payload.conversation_id = conversationId;
+  }
   if (documentIds && documentIds.length > 0) {
     payload.document_ids = documentIds;
   }
@@ -186,4 +202,26 @@ export async function queryRAG(
     throw new Error(data.detail || 'RAG query failed');
   }
   return data;
+}
+
+export async function fetchConversations(workspaceId = 'default'): Promise<ConversationItem[]> {
+  const res = await fetch(`${API_BASE}/conversations?workspace_id=${workspaceId}`);
+  if (!res.ok) throw new Error('Failed to fetch conversations');
+  return res.json();
+}
+
+export async function createConversation(title?: string, workspaceId = 'default'): Promise<ConversationItem> {
+  const res = await fetch(`${API_BASE}/conversations`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ workspace_id: workspaceId, title: title || 'New Conversation' })
+  });
+  if (!res.ok) throw new Error('Failed to create conversation');
+  return res.json();
+}
+
+export async function fetchConversationMessages(conversationId: string): Promise<any[]> {
+  const res = await fetch(`${API_BASE}/conversations/${conversationId}/messages`);
+  if (!res.ok) throw new Error('Failed to fetch conversation messages');
+  return res.json();
 }
