@@ -13,11 +13,7 @@ A production-oriented multi-source Retrieval-Augmented Generation platform for i
 
 ---
 
-## Demo
 
-[Add screenshots/GIF here]
-
----
 
 ## 1. Project Overview
 
